@@ -1,0 +1,315 @@
+"""记忆文件工具定义与异步读写实现。"""
+
+from __future__ import annotations
+
+import json
+import shutil
+from datetime import datetime, timezone as dt_timezone
+from pathlib import Path
+from typing import Any, Literal, cast
+
+import aiofiles
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# data 目录用于运行期持久化，首次启动时再自动创建。
+DATA_DIR = PROJECT_ROOT / "data"
+MEMORY_DIR = DATA_DIR / "memory"
+
+SYSTEM_PROMPT_FILE = "系统提示词.md"
+ASSET_PLACEHOLDER_FILE = "素材库记忆.md"
+WriteMode = Literal["append", "overwrite"]
+
+# 内置初始记忆文件内容：首次启动时直接写入 data/memory。
+INITIAL_MEMORY_FILES: dict[str, str] = {
+    "人格记忆.md": (
+        "# 人格记忆\n\n"
+        "- 本文件用于记录 agent 自身的人格偏好与表达风格。\n"
+        "- 内容应由用户明确提供，不应由 agent 臆测或自我设定。\n"
+        "- 可记录语气、详细程度、决策风格、禁忌表达等长期偏好。\n"
+        "- 当前为初始化模板，等待用户提供偏好后写入。\n"
+    ),
+    "日程表.md": (
+        "# 日程表\n\n"
+        "- 记录任务日程、提醒事项与时间安排。\n"
+        "- 当前为初始化模板，等待后续写入。\n"
+    ),
+    "工作手册.md": (
+        "# 工作手册\n\n"
+        "- 记录稳定流程、工作规范与执行清单。\n"
+        "- 当前为初始化模板，等待后续写入。\n"
+    ),
+    "素材库记忆.md": (
+        "# 素材库记忆（占位）\n\n"
+        "- 本文件用于占位展示，不作为默认常驻上下文来源。\n"
+        "- 除非用户明确要求，否则不应主动读取或写入该文件。\n"
+    ),
+    "通用记忆.md": (
+        "# 通用记忆\n\n"
+        "- 记录无法归类到其他记忆文件的重要信息。\n"
+        "- 当前为初始化模板，等待后续写入。\n"
+    ),
+    SYSTEM_PROMPT_FILE: (
+        "# 系统提示词\n\n"
+        "## 规则\n"
+        "你是一个支持长期记忆的对话智能体。请严格遵守：\n"
+        "1. 优先根据用户意图回答，避免无关扩写。\n"
+        "2. 写入记忆前先判断是否属于长期稳定信息，避免把一次性噪声写入。\n"
+        "3. 默认不要主动读取或写入 `素材库记忆.md`（除非用户明确要求）。\n"
+        "4. 工具执行失败时先解释原因，再给出可行替代方案。\n"
+        "5. 当用户问题依赖当前时间（如“现在几点”“今天是几号”）时，优先调用 `get_current_time`。\n\n"
+        "## 工具定义\n"
+        "- `read_memory_file(file_name)`：读取指定记忆文件。\n"
+        "- `write_memory_file(file_name, content, mode=append|overwrite)`：写入记忆文件。\n"
+        "- `get_current_time()`：获取当前 UTC 与本地时间。\n"
+    ),
+}
+
+PREFERRED_FILE_ORDER = list(INITIAL_MEMORY_FILES.keys())
+
+TOOL_SCHEMAS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_memory_file",
+            "description": "从 data/memory 目录读取指定的 Markdown 记忆文件。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "目标记忆文件名，例如：通用记忆.md",
+                    }
+                },
+                "required": ["file_name"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_memory_file",
+            "description": "向 Markdown 记忆文件写入文本，支持追加或覆盖两种模式。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "目标记忆文件名，例如：通用记忆.md",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "待写入的文本内容。",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["append", "overwrite"],
+                        "description": "append 表示追加写入，overwrite 表示覆盖写入。",
+                    },
+                },
+                "required": ["file_name", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_time",
+            "description": "直接获取系统当前时间信息（UTC 与本地时间）。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+
+def _validate_file_name(file_name: str) -> str:
+    """校验记忆文件名（只允许当前目录下 .md 文件）。"""
+    if not isinstance(file_name, str):
+        raise ValueError("file_name 必须是字符串")
+    name = file_name.strip()
+    if not name:
+        raise ValueError("file_name 不能为空")
+    if "/" in name or "\\" in name:
+        raise ValueError("file_name 必须是文件名，不能包含路径")
+    if not name.endswith(".md"):
+        raise ValueError("仅支持 .md 文件")
+    return name
+
+
+def _resolve_memory_path(file_name: str) -> Path:
+    """把文件名解析为 data/memory 下绝对路径，并阻止路径穿越。"""
+    valid_name = _validate_file_name(file_name)
+    base = MEMORY_DIR.resolve()
+    target = (MEMORY_DIR / valid_name).resolve()
+    # 防止路径穿越，确保目标文件始终落在 data/memory 下。
+    if base not in target.parents and target != base:
+        raise ValueError("记忆文件路径非法")
+    return target
+
+
+def _write_initial_memory_files(*, overwrite: bool) -> list[str]:
+    """将代码内置初始内容写入 data/memory。"""
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    written: list[str] = []
+    for file_name, initial_content in INITIAL_MEMORY_FILES.items():
+        target = MEMORY_DIR / file_name
+        if target.exists() and not overwrite:
+            continue
+        target.write_text(initial_content, encoding="utf-8")
+        written.append(file_name)
+    return written
+
+
+def _clear_memory_dir() -> None:
+    """清空 data/memory 下所有内容。"""
+    if not MEMORY_DIR.exists():
+        return
+    for item in MEMORY_DIR.iterdir():
+        if item.is_dir():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
+
+
+async def ensure_memory_files_exist() -> None:
+    """
+    启动初始化：
+    1. 保证 data/memory 目录存在。
+    2. 为缺失的记忆文件写入内置初始内容。
+    """
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    _write_initial_memory_files(overwrite=False)
+
+
+async def reset_memory_to_initial_content() -> list[str]:
+    """重置记忆区：清空 data/memory 后使用代码内置初始内容全量覆盖。"""
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    _clear_memory_dir()
+    return _write_initial_memory_files(overwrite=True)
+
+
+def _sort_memory_file_names(existing: list[str]) -> list[str]:
+    """
+    记忆文件排序策略：
+    1) 先按 PREFERRED_FILE_ORDER 输出系统内置文件。
+    2) 其余文件按字母序追加。
+    """
+    existing_set = set(existing)
+    ordered = [name for name in PREFERRED_FILE_ORDER if name in existing_set]
+    ordered.extend(name for name in existing if name not in ordered)
+    return ordered
+
+
+def list_memory_file_names() -> list[str]:
+    """列出 data/memory 下可管理的 .md 文件名。"""
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    existing = sorted(
+        [p.name for p in MEMORY_DIR.glob("*.md") if p.is_file()],
+        key=lambda x: x.lower(),
+    )
+    return _sort_memory_file_names(existing)
+
+
+async def read_memory_file_impl(file_name: str) -> str:
+    """读取指定记忆文件内容。"""
+    path = _resolve_memory_path(file_name)
+    if not path.exists():
+        raise FileNotFoundError(f"记忆文件不存在：{file_name}")
+    async with aiofiles.open(path, "r", encoding="utf-8") as f:
+        return await f.read()
+
+
+async def write_memory_file_impl(
+    file_name: str,
+    content: str,
+    mode: WriteMode = "append",
+    *,
+    allow_system_prompt: bool = False,
+) -> str:
+    """写入记忆文件，支持 append/overwrite 两种模式。"""
+    path = _resolve_memory_path(file_name)
+    if file_name == SYSTEM_PROMPT_FILE and not allow_system_prompt:
+        raise PermissionError(f"{SYSTEM_PROMPT_FILE} 仅允许通过人工接口更新")
+    if mode not in {"append", "overwrite"}:
+        raise ValueError("mode 只能是 'append' 或 'overwrite'")
+    if not isinstance(content, str):
+        raise ValueError("content 必须是字符串")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_mode = "a" if mode == "append" else "w"
+    async with aiofiles.open(path, file_mode, encoding="utf-8") as f:
+        await f.write(content)
+        if mode == "append" and content and not content.endswith("\n"):
+            await f.write("\n")
+    return f"写入成功：{file_name}（模式：{mode}）"
+
+
+async def get_current_time_impl() -> str:
+    """返回当前系统时间信息（UTC 与本地）JSON 字符串。"""
+    now_utc = datetime.now(dt_timezone.utc)
+    now_local = now_utc.astimezone()
+    payload: dict[str, Any] = {
+        "utc_time": now_utc.isoformat(),
+        "local_time": now_local.isoformat(),
+        "local_timezone": str(now_local.tzinfo),
+        "unix_timestamp": int(now_utc.timestamp()),
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _string_arg(arguments: dict[str, Any], key: str, default: str = "") -> str:
+    """读取参数字典中的字符串值；不存在时返回默认值并转 str。"""
+    return str(arguments.get(key, default))
+
+
+def _mode_arg(arguments: dict[str, Any], key: str = "mode", default: WriteMode = "append") -> WriteMode:
+    """读取并校验写入模式，返回字面量类型以满足静态类型检查。"""
+    mode = _string_arg(arguments, key, default)
+    if mode not in {"append", "overwrite"}:
+        raise ValueError("mode 只能是 'append' 或 'overwrite'")
+    return cast(WriteMode, mode)
+
+
+async def execute_tool_call(tool_name: str, arguments: dict[str, Any]) -> str:
+    """分发工具调用并返回字符串结果。"""
+    normalized_tool_name = str(tool_name).strip()
+
+    if normalized_tool_name == "read_memory_file":
+        return await read_memory_file_impl(_string_arg(arguments, "file_name"))
+
+    if normalized_tool_name == "write_memory_file":
+        return await write_memory_file_impl(
+            _string_arg(arguments, "file_name"),
+            _string_arg(arguments, "content"),
+            mode=_mode_arg(arguments, "mode", "append"),
+        )
+
+    if normalized_tool_name == "get_current_time":
+        # arguments 形参保留用于统一工具分发签名；当前工具不读取参数。
+        return await get_current_time_impl()
+
+    raise ValueError(f"未知工具：{normalized_tool_name}")
+
+
+def parse_tool_arguments(raw_arguments: Any) -> dict[str, Any]:
+    """把工具参数解析为 dict；支持 dict 或 JSON 字符串输入。"""
+    if isinstance(raw_arguments, dict):
+        return raw_arguments
+    if isinstance(raw_arguments, str):
+        stripped = raw_arguments.strip()
+        if not stripped:
+            return {}
+        try:
+            parsed = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"工具参数 JSON 解析失败：{exc}") from exc
+        if isinstance(parsed, dict):
+            return parsed
+        raise ValueError("工具参数 JSON 必须是对象")
+    raise ValueError("工具参数必须是字典或 JSON 字符串")
