@@ -1,8 +1,9 @@
-"""记忆文件工具定义与异步读写实现。"""
+"""记忆文件工具定义与异步读写实现（按 user_id 隔离）。"""
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
@@ -15,12 +16,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # data 目录用于运行期持久化，首次启动时再自动创建。
 DATA_DIR = PROJECT_ROOT / "data"
 MEMORY_DIR = DATA_DIR / "memory"
+USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 SYSTEM_PROMPT_FILE = "系统提示词.md"
 ASSET_PLACEHOLDER_FILE = "素材库记忆.md"
 WriteMode = Literal["append", "overwrite"]
 
-# 内置初始记忆文件内容：首次启动时直接写入 data/memory。
+# 内置初始记忆文件内容：首次启动时直接写入 data/memory/<user_id>/。
 INITIAL_MEMORY_FILES: dict[str, str] = {
     "人格记忆.md": (
         "# 人格记忆\n\n"
@@ -72,7 +74,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_memory_file",
-            "description": "从 data/memory 目录读取指定的 Markdown 记忆文件。",
+            "description": "读取当前用户隔离目录中的 Markdown 记忆文件。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -90,7 +92,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "write_memory_file",
-            "description": "向 Markdown 记忆文件写入文本，支持追加或覆盖两种模式。",
+            "description": "向当前用户隔离目录中的记忆文件写入文本，支持追加或覆盖。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -128,6 +130,28 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 
+def _validate_user_id(user_id: str) -> str:
+    """校验 user_id，防止目录穿越与非法路径字符。"""
+    if not isinstance(user_id, str):
+        raise ValueError("user_id 必须是字符串")
+    normalized = user_id.strip()
+    if not normalized:
+        raise ValueError("user_id 不能为空")
+    if not USER_ID_PATTERN.fullmatch(normalized):
+        raise ValueError("user_id 仅允许字母、数字、点、下划线、短横线，且必须以字母或数字开头")
+    return normalized
+
+
+def _user_memory_dir(user_id: str) -> Path:
+    """返回用户独立记忆目录 data/memory/<user_id>。"""
+    valid_user_id = _validate_user_id(user_id)
+    base_dir = MEMORY_DIR.resolve()
+    target = (MEMORY_DIR / valid_user_id).resolve()
+    if target == base_dir or base_dir not in target.parents:
+        raise ValueError("user_id 对应目录非法")
+    return target
+
+
 def _validate_file_name(file_name: str) -> str:
     """校验记忆文件名（只允许当前目录下 .md 文件）。"""
     if not isinstance(file_name, str):
@@ -142,23 +166,24 @@ def _validate_file_name(file_name: str) -> str:
     return name
 
 
-def _resolve_memory_path(file_name: str) -> Path:
-    """把文件名解析为 data/memory 下绝对路径，并阻止路径穿越。"""
+def _resolve_memory_path(*, user_id: str, file_name: str) -> Path:
+    """把文件名解析为 data/memory/<user_id>/ 下绝对路径，并阻止路径穿越。"""
     valid_name = _validate_file_name(file_name)
-    base = MEMORY_DIR.resolve()
-    target = (MEMORY_DIR / valid_name).resolve()
-    # 防止路径穿越，确保目标文件始终落在 data/memory 下。
+    user_dir = _user_memory_dir(user_id)
+    base = user_dir.resolve()
+    target = (user_dir / valid_name).resolve()
     if base not in target.parents and target != base:
         raise ValueError("记忆文件路径非法")
     return target
 
 
-def _write_initial_memory_files(*, overwrite: bool) -> list[str]:
-    """将代码内置初始内容写入 data/memory。"""
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+def _write_initial_memory_files(*, user_id: str, overwrite: bool) -> list[str]:
+    """将代码内置初始内容写入用户记忆目录。"""
+    user_dir = _user_memory_dir(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     for file_name, initial_content in INITIAL_MEMORY_FILES.items():
-        target = MEMORY_DIR / file_name
+        target = user_dir / file_name
         if target.exists() and not overwrite:
             continue
         target.write_text(initial_content, encoding="utf-8")
@@ -166,32 +191,35 @@ def _write_initial_memory_files(*, overwrite: bool) -> list[str]:
     return written
 
 
-def _clear_memory_dir() -> None:
-    """清空 data/memory 下所有内容。"""
-    if not MEMORY_DIR.exists():
+def _clear_memory_dir(*, user_id: str) -> None:
+    """清空用户记忆目录。"""
+    user_dir = _user_memory_dir(user_id)
+    if not user_dir.exists():
         return
-    for item in MEMORY_DIR.iterdir():
+    for item in user_dir.iterdir():
         if item.is_dir():
             shutil.rmtree(item)
         else:
             item.unlink()
 
 
-async def ensure_memory_files_exist() -> None:
+async def ensure_memory_files_exist(user_id: str) -> None:
     """
     启动初始化：
-    1. 保证 data/memory 目录存在。
+    1. 保证 data/memory/<user_id> 目录存在。
     2. 为缺失的记忆文件写入内置初始内容。
     """
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    _write_initial_memory_files(overwrite=False)
+    user_dir = _user_memory_dir(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    _write_initial_memory_files(user_id=user_id, overwrite=False)
 
 
-async def reset_memory_to_initial_content() -> list[str]:
-    """重置记忆区：清空 data/memory 后使用代码内置初始内容全量覆盖。"""
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-    _clear_memory_dir()
-    return _write_initial_memory_files(overwrite=True)
+async def reset_memory_to_initial_content(user_id: str) -> list[str]:
+    """重置用户记忆区：清空目录后使用内置初始内容全量覆盖。"""
+    user_dir = _user_memory_dir(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+    _clear_memory_dir(user_id=user_id)
+    return _write_initial_memory_files(user_id=user_id, overwrite=True)
 
 
 def _sort_memory_file_names(existing: list[str]) -> list[str]:
@@ -206,19 +234,20 @@ def _sort_memory_file_names(existing: list[str]) -> list[str]:
     return ordered
 
 
-def list_memory_file_names() -> list[str]:
-    """列出 data/memory 下可管理的 .md 文件名。"""
-    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+def list_memory_file_names(user_id: str) -> list[str]:
+    """列出指定用户目录下可管理的 .md 文件名。"""
+    user_dir = _user_memory_dir(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
     existing = sorted(
-        [p.name for p in MEMORY_DIR.glob("*.md") if p.is_file()],
+        [p.name for p in user_dir.glob("*.md") if p.is_file()],
         key=lambda x: x.lower(),
     )
     return _sort_memory_file_names(existing)
 
 
-async def read_memory_file_impl(file_name: str) -> str:
-    """读取指定记忆文件内容。"""
-    path = _resolve_memory_path(file_name)
+async def read_memory_file_impl(*, user_id: str, file_name: str) -> str:
+    """读取指定用户的记忆文件内容。"""
+    path = _resolve_memory_path(user_id=user_id, file_name=file_name)
     if not path.exists():
         raise FileNotFoundError(f"记忆文件不存在：{file_name}")
     async with aiofiles.open(path, "r", encoding="utf-8") as f:
@@ -226,14 +255,15 @@ async def read_memory_file_impl(file_name: str) -> str:
 
 
 async def write_memory_file_impl(
+    *,
+    user_id: str,
     file_name: str,
     content: str,
     mode: WriteMode = "append",
-    *,
     allow_system_prompt: bool = False,
 ) -> str:
-    """写入记忆文件，支持 append/overwrite 两种模式。"""
-    path = _resolve_memory_path(file_name)
+    """写入指定用户记忆文件，支持 append/overwrite 两种模式。"""
+    path = _resolve_memory_path(user_id=user_id, file_name=file_name)
     if file_name == SYSTEM_PROMPT_FILE and not allow_system_prompt:
         raise PermissionError(f"{SYSTEM_PROMPT_FILE} 仅允许通过人工接口更新")
     if mode not in {"append", "overwrite"}:
@@ -276,17 +306,21 @@ def _mode_arg(arguments: dict[str, Any], key: str = "mode", default: WriteMode =
     return cast(WriteMode, mode)
 
 
-async def execute_tool_call(tool_name: str, arguments: dict[str, Any]) -> str:
+async def execute_tool_call(tool_name: str, arguments: dict[str, Any], *, user_id: str) -> str:
     """分发工具调用并返回字符串结果。"""
     normalized_tool_name = str(tool_name).strip()
 
     if normalized_tool_name == "read_memory_file":
-        return await read_memory_file_impl(_string_arg(arguments, "file_name"))
+        return await read_memory_file_impl(
+            user_id=user_id,
+            file_name=_string_arg(arguments, "file_name"),
+        )
 
     if normalized_tool_name == "write_memory_file":
         return await write_memory_file_impl(
-            _string_arg(arguments, "file_name"),
-            _string_arg(arguments, "content"),
+            user_id=user_id,
+            file_name=_string_arg(arguments, "file_name"),
+            content=_string_arg(arguments, "content"),
             mode=_mode_arg(arguments, "mode", "append"),
         )
 

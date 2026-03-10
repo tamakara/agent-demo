@@ -1,4 +1,4 @@
-"""基于 SQLite 的会话与消息分区持久化实现。"""
+"""基于 SQLite 的多用户会话与消息分区持久化实现。"""
 
 from __future__ import annotations
 
@@ -9,17 +9,11 @@ from typing import Any, Iterable, Sequence
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "agent_state.db"
-GLOBAL_LLM_CONFIG_KEY = "global_llm_config"
 DEFAULT_LLM_MODEL = "agent-advoo"
 DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
 DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 DEFAULT_LLM_MAX_TOOL_ROUNDS = 6
 DEFAULT_TOTAL_TOKEN_LIMIT = 200_000
-LEGACY_DEFAULT_LLM_MODEL = "gpt-4o"
-LEGACY_DEFAULT_LLM_API_KEY = ""
-LEGACY_DEFAULT_LLM_BASE_URL = ""
-LEGACY_DEFAULT_LLM_MAX_TOOL_ROUNDS = 6
-LEGACY_DEFAULT_TOTAL_TOKEN_LIMIT = 200_000
 GLOBAL_LLM_SELECT_SQL = """
 SELECT
     llm_model,
@@ -28,12 +22,12 @@ SELECT
     llm_max_tool_rounds,
     context_total_token_limit
 FROM app_settings
-WHERE setting_key = ?;
+WHERE user_id = ?;
 """
 TOUCH_SESSION_SQL = """
 UPDATE sessions
 SET updated_at = CURRENT_TIMESTAMP
-WHERE session_id = ?;
+WHERE user_id = ? AND session_id = ?;
 """
 
 
@@ -52,14 +46,14 @@ class SQLiteStore:
         return self._conn
 
     @staticmethod
-    def _touch_session(conn: sqlite3.Connection, session_id: str) -> None:
+    def _touch_session(conn: sqlite3.Connection, user_id: str, session_id: str) -> None:
         """刷新会话 updated_at，用于消息写入/删除后的会话排序。"""
-        conn.execute(TOUCH_SESSION_SQL, (session_id,))
+        conn.execute(TOUCH_SESSION_SQL, (user_id, session_id))
 
     @staticmethod
-    def _fetch_global_llm_row(conn: sqlite3.Connection) -> sqlite3.Row | None:
-        """读取 app_settings 中全局 LLM 配置行。"""
-        return conn.execute(GLOBAL_LLM_SELECT_SQL, (GLOBAL_LLM_CONFIG_KEY,)).fetchone()
+    def _fetch_global_llm_row(conn: sqlite3.Connection, user_id: str) -> sqlite3.Row | None:
+        """读取 app_settings 中指定用户的配置行。"""
+        return conn.execute(GLOBAL_LLM_SELECT_SQL, (user_id,)).fetchone()
 
     async def initialize(self) -> None:
         async with self._lock:
@@ -74,23 +68,25 @@ class SQLiteStore:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
                     workbench_summary TEXT NOT NULL DEFAULT '',
                     is_flushing INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(user_id, session_id)
                 );
                 """
             )
             conn.execute(
-                f"""
+                """
                 CREATE TABLE IF NOT EXISTS app_settings (
-                    setting_key TEXT PRIMARY KEY,
-                    llm_model TEXT NOT NULL DEFAULT '{DEFAULT_LLM_MODEL}',
-                    llm_api_key TEXT NOT NULL DEFAULT '{DEFAULT_LLM_API_KEY}',
-                    llm_base_url TEXT NOT NULL DEFAULT '{DEFAULT_LLM_BASE_URL}',
-                    llm_max_tool_rounds INTEGER NOT NULL DEFAULT {DEFAULT_LLM_MAX_TOOL_ROUNDS},
-                    context_total_token_limit INTEGER NOT NULL DEFAULT {DEFAULT_TOTAL_TOKEN_LIMIT},
+                    user_id TEXT PRIMARY KEY,
+                    llm_model TEXT NOT NULL,
+                    llm_api_key TEXT NOT NULL,
+                    llm_base_url TEXT NOT NULL,
+                    llm_max_tool_rounds INTEGER NOT NULL,
+                    context_total_token_limit INTEGER NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 """
@@ -99,39 +95,40 @@ class SQLiteStore:
                 """
                 CREATE TABLE IF NOT EXISTS messages (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
                     zone TEXT NOT NULL,
                     token_count INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                    FOREIGN KEY(user_id, session_id)
+                        REFERENCES sessions(user_id, session_id)
+                        ON DELETE CASCADE
                 );
                 """
             )
             conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_messages_session_zone
-                ON messages(session_id, zone, id);
+                CREATE INDEX IF NOT EXISTS idx_messages_user_session_zone
+                ON messages(user_id, session_id, zone, id);
                 """
             )
             conn.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_messages_session_id
-                ON messages(session_id, id);
+                CREATE INDEX IF NOT EXISTS idx_messages_user_session_id
+                ON messages(user_id, session_id, id);
                 """
             )
-            self._ensure_global_llm_config_seed(conn)
-            self._migrate_legacy_global_llm_config_defaults(conn)
             conn.commit()
             self._conn = conn
 
     @staticmethod
-    def _ensure_global_llm_config_seed(conn: sqlite3.Connection) -> None:
-        """初始化全局 LLM 配置默认值。"""
+    def _ensure_global_llm_config_seed(conn: sqlite3.Connection, user_id: str) -> None:
+        """初始化指定用户的 LLM 配置默认值。"""
         existing = conn.execute(
-            "SELECT 1 FROM app_settings WHERE setting_key = ?;",
-            (GLOBAL_LLM_CONFIG_KEY,),
+            "SELECT 1 FROM app_settings WHERE user_id = ?;",
+            (user_id,),
         ).fetchone()
         if existing is not None:
             return
@@ -139,7 +136,7 @@ class SQLiteStore:
         conn.execute(
             """
             INSERT INTO app_settings(
-                setting_key,
+                user_id,
                 llm_model,
                 llm_api_key,
                 llm_base_url,
@@ -148,62 +145,12 @@ class SQLiteStore:
             ) VALUES (?, ?, ?, ?, ?, ?);
             """,
             (
-                GLOBAL_LLM_CONFIG_KEY,
+                user_id,
                 DEFAULT_LLM_MODEL,
                 DEFAULT_LLM_API_KEY,
                 DEFAULT_LLM_BASE_URL,
                 DEFAULT_LLM_MAX_TOOL_ROUNDS,
                 DEFAULT_TOTAL_TOKEN_LIMIT,
-            ),
-        )
-
-    @staticmethod
-    def _migrate_legacy_global_llm_config_defaults(conn: sqlite3.Connection) -> None:
-        """
-        将“历史空配置默认值”升级为当前预置默认值。
-
-        仅当配置仍是旧版初始状态（gpt-4o + 空 key/base_url + 默认轮次/窗口）时升级，
-        避免覆盖用户已经手动保存过的自定义配置。
-        """
-        row = SQLiteStore._fetch_global_llm_row(conn)
-        if row is None:
-            return
-
-        model = str(row["llm_model"] or "").strip()
-        api_key = str(row["llm_api_key"] or "").strip()
-        base_url = str(row["llm_base_url"] or "").strip()
-        max_tool_rounds = int(row["llm_max_tool_rounds"] or 0)
-        total_token_limit = int(row["context_total_token_limit"] or 0)
-
-        is_legacy_default = (
-            model == LEGACY_DEFAULT_LLM_MODEL
-            and api_key == LEGACY_DEFAULT_LLM_API_KEY
-            and base_url == LEGACY_DEFAULT_LLM_BASE_URL
-            and max_tool_rounds == LEGACY_DEFAULT_LLM_MAX_TOOL_ROUNDS
-            and total_token_limit == LEGACY_DEFAULT_TOTAL_TOKEN_LIMIT
-        )
-        if not is_legacy_default:
-            return
-
-        conn.execute(
-            """
-            UPDATE app_settings
-            SET
-                llm_model = ?,
-                llm_api_key = ?,
-                llm_base_url = ?,
-                llm_max_tool_rounds = ?,
-                context_total_token_limit = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE setting_key = ?;
-            """,
-            (
-                DEFAULT_LLM_MODEL,
-                DEFAULT_LLM_API_KEY,
-                DEFAULT_LLM_BASE_URL,
-                DEFAULT_LLM_MAX_TOOL_ROUNDS,
-                DEFAULT_TOTAL_TOKEN_LIMIT,
-                GLOBAL_LLM_CONFIG_KEY,
             ),
         )
 
@@ -214,42 +161,44 @@ class SQLiteStore:
             self._conn.close()
             self._conn = None
 
-    async def ensure_session(self, session_id: str) -> None:
+    async def ensure_session(self, user_id: str, session_id: str) -> None:
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
                 """
-                INSERT INTO sessions(session_id) VALUES (?)
-                ON CONFLICT(session_id) DO NOTHING;
+                INSERT INTO sessions(user_id, session_id) VALUES (?, ?)
+                ON CONFLICT(user_id, session_id) DO NOTHING;
                 """,
-                (session_id,),
+                (user_id, session_id),
             )
             conn.commit()
 
-    async def create_session(self, session_id: str) -> dict[str, Any]:
-        await self.ensure_session(session_id)
-        return await self.get_session(session_id)
+    async def create_session(self, user_id: str, session_id: str) -> dict[str, Any]:
+        await self.ensure_session(user_id, session_id)
+        return await self.get_session(user_id, session_id)
 
-    async def get_session(self, session_id: str) -> dict[str, Any]:
-        await self.ensure_session(session_id)
+    async def get_session(self, user_id: str, session_id: str) -> dict[str, Any]:
+        await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
             row = conn.execute(
                 """
                 SELECT
+                    user_id,
                     session_id,
                     workbench_summary,
                     is_flushing,
                     created_at,
                     updated_at
                 FROM sessions
-                WHERE session_id = ?;
+                WHERE user_id = ? AND session_id = ?;
                 """,
-                (session_id,),
+                (user_id, session_id),
             ).fetchone()
             if row is None:
-                raise RuntimeError(f"会话不存在：{session_id}")
+                raise RuntimeError(f"会话不存在：{user_id}/{session_id}")
             return {
+                "user_id": row["user_id"],
                 "session_id": row["session_id"],
                 "workbench_summary": row["workbench_summary"] or "",
                 "is_flushing": bool(row["is_flushing"]),
@@ -257,16 +206,16 @@ class SQLiteStore:
                 "updated_at": row["updated_at"],
             }
 
-    async def get_global_llm_config(self) -> dict[str, Any]:
+    async def get_global_llm_config(self, user_id: str) -> dict[str, Any]:
         async with self._lock:
             conn = self._ensure_conn()
-            row = self._fetch_global_llm_row(conn)
+            row = self._fetch_global_llm_row(conn, user_id)
             if row is None:
-                self._ensure_global_llm_config_seed(conn)
+                self._ensure_global_llm_config_seed(conn, user_id)
                 conn.commit()
-                row = self._fetch_global_llm_row(conn)
+                row = self._fetch_global_llm_row(conn, user_id)
             if row is None:
-                raise RuntimeError("全局 LLM 配置初始化失败")
+                raise RuntimeError(f"用户配置初始化失败：{user_id}")
             model = str(row["llm_model"] or "").strip() or DEFAULT_LLM_MODEL
             api_key = str(row["llm_api_key"] or "").strip() or DEFAULT_LLM_API_KEY
             base_url = str(row["llm_base_url"] or "").strip() or DEFAULT_LLM_BASE_URL
@@ -281,6 +230,7 @@ class SQLiteStore:
     async def update_global_llm_config(
         self,
         *,
+        user_id: str,
         model: str,
         api_key: str,
         base_url: str | None,
@@ -292,7 +242,7 @@ class SQLiteStore:
             conn.execute(
                 """
                 INSERT INTO app_settings(
-                    setting_key,
+                    user_id,
                     llm_model,
                     llm_api_key,
                     llm_base_url,
@@ -300,7 +250,7 @@ class SQLiteStore:
                     context_total_token_limit,
                     updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(setting_key) DO UPDATE SET
+                ON CONFLICT(user_id) DO UPDATE SET
                     llm_model = excluded.llm_model,
                     llm_api_key = excluded.llm_api_key,
                     llm_base_url = excluded.llm_base_url,
@@ -309,7 +259,7 @@ class SQLiteStore:
                     updated_at = CURRENT_TIMESTAMP;
                 """,
                 (
-                    GLOBAL_LLM_CONFIG_KEY,
+                    user_id,
                     model,
                     api_key,
                     base_url or "",
@@ -319,58 +269,60 @@ class SQLiteStore:
             )
             conn.commit()
 
-    async def set_is_flushing(self, session_id: str, value: bool) -> None:
-        await self.ensure_session(session_id)
+    async def set_is_flushing(self, user_id: str, session_id: str, value: bool) -> None:
+        await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
                 """
                 UPDATE sessions
                 SET is_flushing = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE session_id = ?;
+                WHERE user_id = ? AND session_id = ?;
                 """,
-                (1 if value else 0, session_id),
+                (1 if value else 0, user_id, session_id),
             )
             conn.commit()
 
-    async def update_workbench_summary(self, session_id: str, summary: str) -> None:
-        await self.ensure_session(session_id)
+    async def update_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
+        await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
                 """
                 UPDATE sessions
                 SET workbench_summary = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE session_id = ?;
+                WHERE user_id = ? AND session_id = ?;
                 """,
-                (summary, session_id),
+                (summary, user_id, session_id),
             )
             conn.commit()
 
     async def add_message(
         self,
+        user_id: str,
         session_id: str,
         role: str,
         content: str,
         zone: str,
         token_count: int,
     ) -> int:
-        await self.ensure_session(session_id)
+        await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
             cursor = conn.execute(
                 """
-                INSERT INTO messages(session_id, role, content, zone, token_count)
-                VALUES (?, ?, ?, ?, ?);
+                INSERT INTO messages(user_id, session_id, role, content, zone, token_count)
+                VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                (session_id, role, content, zone, token_count),
+                (user_id, session_id, role, content, zone, token_count),
             )
-            self._touch_session(conn, session_id)
+            self._touch_session(conn, user_id, session_id)
             conn.commit()
             return int(cursor.lastrowid)
 
     async def list_messages(
         self,
+        user_id: str,
         session_id: str,
         *,
         zones: Sequence[str] | None = None,
@@ -378,12 +330,12 @@ class SQLiteStore:
         ascending: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        await self.ensure_session(session_id)
+        await self.ensure_session(user_id, session_id)
         query = (
-            "SELECT id, session_id, role, content, zone, token_count, created_at "
-            "FROM messages WHERE session_id = ?"
+            "SELECT id, user_id, session_id, role, content, zone, token_count, created_at "
+            "FROM messages WHERE user_id = ? AND session_id = ?"
         )
-        params: list[Any] = [session_id]
+        params: list[Any] = [user_id, session_id]
 
         if zones:
             placeholders = ",".join(["?"] * len(zones))
@@ -405,63 +357,70 @@ class SQLiteStore:
             rows = conn.execute(query, tuple(params)).fetchall()
             return [dict(row) for row in rows]
 
-    async def sum_tokens_by_zone(self, session_id: str) -> dict[str, int]:
-        await self.ensure_session(session_id)
+    async def sum_tokens_by_zone(self, user_id: str, session_id: str) -> dict[str, int]:
+        await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
             rows = conn.execute(
                 """
                 SELECT zone, COALESCE(SUM(token_count), 0) AS total_tokens
                 FROM messages
-                WHERE session_id = ?
+                WHERE user_id = ? AND session_id = ?
                 GROUP BY zone;
                 """,
-                (session_id,),
+                (user_id, session_id),
             ).fetchall()
             result = {str(row["zone"]): int(row["total_tokens"]) for row in rows}
             return result
 
-    async def clear_messages(self, session_id: str) -> None:
-        await self.ensure_session(session_id)
+    async def clear_messages(self, user_id: str, session_id: str) -> None:
+        await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
-            conn.execute("DELETE FROM messages WHERE session_id = ?;", (session_id,))
-            self._touch_session(conn, session_id)
+            conn.execute(
+                "DELETE FROM messages WHERE user_id = ? AND session_id = ?;",
+                (user_id, session_id),
+            )
+            self._touch_session(conn, user_id, session_id)
             conn.commit()
 
-    async def delete_messages_by_zones(self, session_id: str, zones: Iterable[str]) -> None:
-        await self.ensure_session(session_id)
+    async def delete_messages_by_zones(self, user_id: str, session_id: str, zones: Iterable[str]) -> None:
+        await self.ensure_session(user_id, session_id)
         zones = list(zones)
         if not zones:
             return
         placeholders = ",".join(["?"] * len(zones))
-        params = [session_id, *zones]
+        params = [user_id, session_id, *zones]
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
-                f"DELETE FROM messages WHERE session_id = ? AND zone IN ({placeholders});",
+                f"DELETE FROM messages WHERE user_id = ? AND session_id = ? AND zone IN ({placeholders});",
                 tuple(params),
             )
-            self._touch_session(conn, session_id)
+            self._touch_session(conn, user_id, session_id)
             conn.commit()
 
-    async def list_sessions(self, *, limit: int = 200) -> list[dict[str, Any]]:
+    async def list_sessions(self, user_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
         async with self._lock:
             conn = self._ensure_conn()
             rows = conn.execute(
                 """
                 SELECT
+                    s.user_id,
                     s.session_id,
                     s.is_flushing,
                     s.created_at,
                     s.updated_at,
                     COALESCE(COUNT(m.id), 0) AS message_count
                 FROM sessions s
-                LEFT JOIN messages m ON s.session_id = m.session_id
-                GROUP BY s.session_id, s.is_flushing, s.created_at, s.updated_at
+                LEFT JOIN messages m
+                    ON s.user_id = m.user_id
+                    AND s.session_id = m.session_id
+                WHERE s.user_id = ?
+                GROUP BY s.user_id, s.session_id, s.is_flushing, s.created_at, s.updated_at
                 ORDER BY s.updated_at DESC, s.created_at DESC
                 LIMIT ?;
                 """,
-                (limit,),
+                (user_id, limit),
             ).fetchall()
             return [dict(row) for row in rows]

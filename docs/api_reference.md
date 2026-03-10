@@ -1,8 +1,26 @@
-# 接口参考文档
+# 接口参考文档（多用户版）
+
+## 总则
+
+1. `user_id` 是唯一用户标识，必填。  
+2. 不做鉴权，后端按 `user_id` 直接隔离数据。  
+3. 同名 `session_id` 可在不同用户下并存。  
+
+`user_id` 规则：
+
+- 允许：字母、数字、`.`、`_`、`-`
+- 长度：1 到 64
+- 必须以字母或数字开头
+
+---
 
 ## 1. `GET /api/sessions`
 
-返回 SQLite 中已存在的会话列表，按最近更新时间倒序排列。
+按用户返回会话列表（最近更新时间倒序）。
+
+### 查询参数
+
+- `user_id`（必填）
 
 ### 响应示例
 
@@ -10,24 +28,28 @@
 {
   "sessions": [
     {
-      "session_id": "session-20260307-160012-a1b2c3",
+      "user_id": "alice",
+      "session_id": "session-20260310-101530-a1b2c3",
       "is_flushing": false,
-      "created_at": "2026-03-07 16:00:12",
-      "updated_at": "2026-03-07 16:10:45",
-      "message_count": 12
+      "created_at": "2026-03-10 10:15:30",
+      "updated_at": "2026-03-10 10:16:20",
+      "message_count": 4
     }
   ]
 }
 ```
 
+---
+
 ## 2. `POST /api/sessions`
 
-创建新会话并写入 SQLite，会返回新会话信息。
+创建用户会话。
 
 ### 请求体
 
 ```json
 {
+  "user_id": "alice",
   "session_id": ""
 }
 ```
@@ -43,81 +65,57 @@
 {
   "created": true,
   "session": {
-    "session_id": "session-20260307-160012-a1b2c3",
+    "user_id": "alice",
+    "session_id": "session-20260310-101530-a1b2c3",
     "is_flushing": false,
-    "created_at": "2026-03-07 16:00:12",
-    "updated_at": "2026-03-07 16:00:12",
+    "created_at": "2026-03-10 10:15:30",
+    "updated_at": "2026-03-10 10:15:30",
     "message_count": 0
   }
 }
 ```
 
-## 2.1 `GET /api/session-messages`
+---
 
-按时间顺序读取指定会话在 SQLite 中的历史消息，用于前端切换 session 后回放聊天记录。
+## 3. `GET /api/session-messages`
+
+按时间顺序读取某用户某会话历史消息。
 
 ### 查询参数
 
-- `session_id`：会话 ID（必填）
-- `limit`：最大返回条数（默认 `500`，范围 `1..5000`）
+- `user_id`（必填）
+- `session_id`（必填）
+- `limit`（可选，默认 `500`，范围 `1..5000`）
 
 ### 响应示例
 
 ```json
 {
-  "session_id": "session-20260307-160012-a1b2c3",
+  "user_id": "alice",
+  "session_id": "session-20260310-101530-a1b2c3",
   "messages": [
     {
       "id": 1,
-      "session_id": "session-20260307-160012-a1b2c3",
+      "user_id": "alice",
+      "session_id": "session-20260310-101530-a1b2c3",
       "role": "user",
       "content": "你好",
       "zone": "dialogue",
-      "created_at": "2026-03-07 16:00:20"
-    },
-    {
-      "id": 2,
-      "session_id": "session-20260307-160012-a1b2c3",
-      "role": "assistant",
-      "content": "你好，我在。",
-      "zone": "dialogue",
-      "created_at": "2026-03-07 16:00:22"
+      "created_at": "2026-03-10 10:15:35"
     }
   ]
 }
 ```
 
-## 3. `GET /api/settings`
+---
 
-读取全局设置（来源：SQLite `app_settings` 表）。
+## 4. `GET /api/settings`
 
-### 响应示例
+读取用户级 LLM 与上下文设置。
 
-```json
-{
-  "model": "agent-advoo",
-  "api_key": "sk-...",
-  "base_url": "http://model-gateway.test.api.dotai.internal/v1",
-  "max_tool_rounds": 6,
-  "total_token_limit": 200000
-}
-```
+### 查询参数
 
-## 4. `PUT /api/settings`
-
-更新全局设置并写入 SQLite。
-
-### 请求体
-
-```json
-{
-  "model": "agent-advoo",
-  "api_key": "sk-...",
-  "base_url": "http://model-gateway.test.api.dotai.internal/v1",
-  "max_tool_rounds": 6,
-  "total_token_limit": 200000
-}
-```
+- `user_id`（必填）
 
 ### 响应示例
 
@@ -131,20 +129,47 @@
 }
 ```
 
-说明：
+---
 
-1. `max_tool_rounds` 限制范围为 `1..20`。
-2. `base_url` 为空时可传 `null`，后端会使用默认值。
-3. `total_token_limit` 限制范围为 `20000..2000000`，默认 `200000`。
+## 5. `PUT /api/settings`
 
-## 5. `POST /api/chat`
+更新用户级 LLM 与上下文设置。
+
+### 查询参数
+
+- `user_id`（必填）
 
 ### 请求体
 
 ```json
 {
-  "message": "你好",
-  "session_id": "default",
+  "model": "agent-advoo",
+  "api_key": "sk-...",
+  "base_url": "http://model-gateway.test.api.dotai.internal/v1",
+  "max_tool_rounds": 6,
+  "total_token_limit": 200000
+}
+```
+
+约束：
+
+1. `max_tool_rounds` 范围 `1..20`
+2. `total_token_limit` 范围 `20000..2000000`
+3. `base_url` 传 `null` 时回退默认值
+
+---
+
+## 6. `POST /api/chat`
+
+发起流式聊天（SSE）。
+
+### 请求体
+
+```json
+{
+  "user_id": "alice",
+  "session_id": "session-20260310-101530-a1b2c3",
+  "message": "帮我记录偏好：以后回答简洁一些",
   "max_tool_rounds": 6,
   "llm_config": {
     "model": "agent-advoo",
@@ -154,60 +179,30 @@
 }
 ```
 
-### `llm_config.base_url` 填写建议
-
-`base_url` 适用于 OpenAI 官方与 OpenAI 兼容服务，推荐格式如下：
-
-1. OpenAI 官方：`https://api.openai.com/v1`
-2. 兼容服务：`https://你的服务域名/v1`
-
-后端会做以下兼容处理：
-
-1. 如果传入 `https://.../v1/chat/completions`，会自动规范化到 `https://.../v1`。
-2. 如果只传域名（如 `https://api.example.com`），会自动补成 `https://api.example.com/v1`。
-3. 如果为空，则默认使用 `http://model-gateway.test.api.dotai.internal/v1`。
-
-注意：
-
-1. 必须使用完整的 `http://` 或 `https://` 地址。
-2. `base_url` 的规则同样适用于 `POST /api/memory/flush` 中的 `llm_config`。
-
 ### 响应
 
 - `Content-Type: text/event-stream`
-- 事件类型：
-  - `meta`
-  - `tool_call`
-  - `tool_result`
-  - `assistant_final`
-  - `memory_status`
-  - `done`
-  - `error`（异常时）
+- 事件类型：`meta` / `tool_call` / `tool_result` / `assistant_final` / `memory_status` / `done` / `error`
 
-### `assistant_final` 示例
+首个 `meta` 事件包含 `user_id` 和 `session_id`。
 
-```json
-{
-  "content": "这是模型最终回答",
-  "usage": {
-    "prompt_tokens": 1000,
-    "completion_tokens": 200,
-    "total_tokens": 1200
-  }
-}
-```
+---
 
-## 6. `GET /api/memory/status`
+## 7. `GET /api/memory/status`
+
+读取用户会话上下文窗口状态。
 
 ### 查询参数
 
-- `session_id`（默认：`default`）
-- `model`（默认：`agent-advoo`，用于选择 token 编码器）
+- `user_id`（必填）
+- `session_id`（可选，默认 `default`）
+- `model`（可选，默认 `agent-advoo`）
 
 ### 响应示例
 
 ```json
 {
+  "user_id": "alice",
   "session_id": "default",
   "total_tokens": 25312,
   "resident_tokens": 11442,
@@ -227,7 +222,15 @@
 }
 ```
 
-## 7. `GET /api/memory/files`
+---
+
+## 8. `GET /api/memory/files`
+
+读取用户记忆文件列表与内容。
+
+### 查询参数
+
+- `user_id`（必填）
 
 ### 响应示例
 
@@ -240,13 +243,15 @@
 }
 ```
 
-## 8. `PUT /api/memory/files/{file_name}`
+---
 
-用于人工编辑记忆文件（包含 `系统提示词.md`）。
+## 9. `PUT /api/memory/files/{file_name}`
 
-### 路径参数
+人工编辑用户记忆文件（包含 `系统提示词.md`）。
 
-- `file_name`：目标 `.md` 文件名
+### 查询参数
+
+- `user_id`（必填）
 
 ### 请求体
 
@@ -257,24 +262,17 @@
 }
 ```
 
-`mode` 可选值：
+`mode` 可选值：`overwrite` / `append`
 
-- `overwrite`：覆盖写入
-- `append`：追加写入
+---
 
-### 响应示例
+## 10. `POST /api/memory/reset`
 
-```json
-{
-  "ok": true,
-  "file_name": "系统提示词.md",
-  "content": "..."
-}
-```
+重置用户记忆目录（清空后按模板重建）。
 
-## 8.1 `POST /api/memory/reset`
+### 查询参数
 
-清空 `data/memory` 目录并使用后端内置初始内容全量覆盖重建。
+- `user_id`（必填）
 
 ### 响应示例
 
@@ -289,12 +287,17 @@
 }
 ```
 
-## 9. `POST /api/memory/flush`
+---
+
+## 11. `POST /api/memory/flush`
+
+手动触发用户会话刷盘。
 
 ### 请求体
 
 ```json
 {
+  "user_id": "alice",
   "session_id": "default",
   "max_tool_rounds": 6,
   "llm_config": {
@@ -310,13 +313,16 @@
 ```json
 {
   "accepted": true,
+  "user_id": "alice",
   "session_id": "default",
   "is_flushing": true
 }
 ```
 
-## 错误码说明
+---
 
-- `400`：参数非法、文件名非法或权限策略不允许
+## 错误码
+
+- `400`：参数非法（例如 `user_id` / 文件名非法）
 - `404`：目标记忆文件不存在
 - `500`：服务内部错误

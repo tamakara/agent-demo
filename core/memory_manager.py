@@ -98,15 +98,16 @@ class MemoryManager:
 
     def __init__(self, db: SQLiteStore) -> None:
         self.db = db
-        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._session_locks: dict[tuple[str, str], asyncio.Lock] = {}
         self._locks_guard = asyncio.Lock()
 
-    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
-        """按 session 维度提供串行锁，避免并发写同一会话。"""
+    async def _get_session_lock(self, user_id: str, session_id: str) -> asyncio.Lock:
+        """按 (user_id, session_id) 维度提供串行锁，避免并发写同一会话。"""
+        lock_key = (user_id, session_id)
         async with self._locks_guard:
-            if session_id not in self._session_locks:
-                self._session_locks[session_id] = asyncio.Lock()
-            return self._session_locks[session_id]
+            if lock_key not in self._session_locks:
+                self._session_locks[lock_key] = asyncio.Lock()
+            return self._session_locks[lock_key]
 
     @staticmethod
     def _encoding_for_model(model: str) -> tiktoken.Encoding:
@@ -333,9 +334,9 @@ class MemoryManager:
         selected_desc.reverse()
         return selected_desc
 
-    async def _get_thresholds(self) -> WindowThresholds:
-        """读取全局配置并计算窗口预算。"""
-        config = await self.db.get_global_llm_config()
+    async def _get_thresholds(self, user_id: str) -> WindowThresholds:
+        """读取用户配置并计算窗口预算。"""
+        config = await self.db.get_global_llm_config(user_id)
         total_limit = config.get("total_token_limit", DEFAULT_TOTAL_LIMIT)
         try:
             parsed_total_limit = int(total_limit)
@@ -457,6 +458,7 @@ class MemoryManager:
     async def _persist_tool_events(
         self,
         *,
+        user_id: str,
         session_id: str,
         events: list[dict[str, Any]],
         model: str,
@@ -468,6 +470,7 @@ class MemoryManager:
             role = "assistant" if event.get("event") == "tool_call" else "tool"
             content = json.dumps(event, ensure_ascii=False)
             await self.db.add_message(
+                user_id=user_id,
                 session_id=session_id,
                 role=role,
                 content=content,
@@ -477,6 +480,7 @@ class MemoryManager:
 
     async def _compose_resident_system_text(
         self,
+        user_id: str,
         session_id: str,
         model: str,
         thresholds: WindowThresholds,
@@ -486,9 +490,12 @@ class MemoryManager:
         - 系统提示词 + 记忆文件：10%
         - 工作台摘要：1%
         """
-        session = await self.db.get_session(session_id)
+        session = await self.db.get_session(user_id, session_id)
         try:
-            system_prompt_markdown = await read_memory_file_impl(SYSTEM_PROMPT_FILE)
+            system_prompt_markdown = await read_memory_file_impl(
+                user_id=user_id,
+                file_name=SYSTEM_PROMPT_FILE,
+            )
         except FileNotFoundError:
             system_prompt_markdown = ""
 
@@ -499,11 +506,11 @@ class MemoryManager:
             tool_defs_text = self._render_tool_definitions_from_schema()
 
         memory_sections: list[str] = []
-        for file_name in list_memory_file_names():
+        for file_name in list_memory_file_names(user_id):
             if file_name in {SYSTEM_PROMPT_FILE, ASSET_PLACEHOLDER_FILE}:
                 continue
             try:
-                content = await read_memory_file_impl(file_name)
+                content = await read_memory_file_impl(user_id=user_id, file_name=file_name)
             except FileNotFoundError:
                 continue
             stripped = content.strip()
@@ -537,14 +544,16 @@ class MemoryManager:
 
     async def _build_chat_messages(
         self,
+        user_id: str,
         session_id: str,
         model: str,
         thresholds: WindowThresholds,
     ) -> list[dict[str, Any]]:
         """构建发给模型的完整 messages（含 resident_recent/dialogue/tool/buffer）。"""
-        resident_text = await self._compose_resident_system_text(session_id, model, thresholds)
+        resident_text = await self._compose_resident_system_text(user_id, session_id, model, thresholds)
 
         resident_recent_all = await self.db.list_messages(
+            user_id,
             session_id,
             zones=["resident_recent"],
             ascending=True,
@@ -556,6 +565,7 @@ class MemoryManager:
         )
 
         active_all = await self.db.list_messages(
+            user_id,
             session_id,
             zones=["dialogue", "tool", "buffer"],
             ascending=True,
@@ -595,21 +605,28 @@ class MemoryManager:
 
     async def _resident_static_tokens(
         self,
+        user_id: str,
         session_id: str,
         model: str,
         thresholds: WindowThresholds,
     ) -> int:
         """统计常驻静态区 token（不含 resident_recent）。"""
-        text = await self._compose_resident_system_text(session_id, model, thresholds)
+        text = await self._compose_resident_system_text(user_id, session_id, model, thresholds)
         return self._count_tokens(text, model)
 
-    async def get_status(self, session_id: str, model: str = "agent-advoo") -> MemoryStatusResponse:
+    async def get_status(
+        self,
+        user_id: str,
+        session_id: str,
+        model: str = "agent-advoo",
+    ) -> MemoryStatusResponse:
         """读取会话当前 token 使用状态。"""
-        session = await self.db.get_session(session_id)
-        thresholds = await self._get_thresholds()
-        zone_tokens = await self.db.sum_tokens_by_zone(session_id)
+        session = await self.db.get_session(user_id, session_id)
+        thresholds = await self._get_thresholds(user_id)
+        zone_tokens = await self.db.sum_tokens_by_zone(user_id, session_id)
 
         resident_recent_all = await self.db.list_messages(
+            user_id,
             session_id,
             zones=["resident_recent"],
             ascending=True,
@@ -622,7 +639,7 @@ class MemoryManager:
         resident_recent_tokens = sum(self._row_token_count(row, model) for row in resident_recent_limited)
 
         # 常驻区由静态文本和近期保留对话共同构成。
-        resident_static_tokens = await self._resident_static_tokens(session_id, model, thresholds)
+        resident_static_tokens = await self._resident_static_tokens(user_id, session_id, model, thresholds)
         resident_tokens = resident_static_tokens + resident_recent_tokens
 
         dialogue_tokens = zone_tokens.get("dialogue", 0) + zone_tokens.get("tool", 0)
@@ -630,6 +647,7 @@ class MemoryManager:
         total_tokens = resident_tokens + dialogue_tokens + buffer_tokens
 
         return MemoryStatusResponse(
+            user_id=user_id,
             session_id=session_id,
             total_tokens=total_tokens,
             resident_tokens=resident_tokens,
@@ -641,6 +659,7 @@ class MemoryManager:
 
     async def process_chat(
         self,
+        user_id: str,
         session_id: str,
         user_message: str,
         llm_config: LLMConfig,
@@ -648,7 +667,7 @@ class MemoryManager:
         on_event: EventCallback | None = None,
     ) -> ChatProcessResult:
         """处理一轮聊天请求，并在需要时标记异步刷盘。"""
-        lock = await self._get_session_lock(session_id)
+        lock = await self._get_session_lock(user_id, session_id)
         live_tool_events: list[dict[str, Any]] = []
 
         async def _collect_tool_event(event: dict[str, Any]) -> None:
@@ -660,21 +679,23 @@ class MemoryManager:
                 await maybe_coro
 
         async def _refresh_system_message() -> str:
-            latest_thresholds = await self._get_thresholds()
+            latest_thresholds = await self._get_thresholds(user_id)
             return await self._compose_resident_system_text(
+                user_id=user_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=latest_thresholds,
             )
 
         async with lock:
-            await self.db.ensure_session(session_id)
-            session = await self.db.get_session(session_id)
-            thresholds = await self._get_thresholds()
+            await self.db.ensure_session(user_id, session_id)
+            session = await self.db.get_session(user_id, session_id)
+            thresholds = await self._get_thresholds(user_id)
 
             # 刷盘中产生的新消息进入缓冲区，避免干扰归档输入。
             message_zone = "buffer" if session["is_flushing"] else "dialogue"
             await self.db.add_message(
+                user_id=user_id,
                 session_id=session_id,
                 role="user",
                 content=user_message,
@@ -682,12 +703,14 @@ class MemoryManager:
                 token_count=self._count_tokens(user_message, llm_config.model),
             )
             prompt_messages = await self._build_chat_messages(
+                user_id=user_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=thresholds,
             )
 
             agent_result: AgentRunResult = await run_agent_with_tools(
+                user_id=user_id,
                 messages=prompt_messages,
                 llm_config=llm_config,
                 max_tool_rounds=max_tool_rounds,
@@ -695,11 +718,12 @@ class MemoryManager:
                 refresh_system_message=_refresh_system_message,
             )
 
-            session_after = await self.db.get_session(session_id)
+            session_after = await self.db.get_session(user_id, session_id)
             assistant_zone = "buffer" if session_after["is_flushing"] else "dialogue"
 
             # 工具事件先落库，再落助手最终回复，确保历史顺序可回放。
             await self._persist_tool_events(
+                user_id=user_id,
                 session_id=session_id,
                 events=live_tool_events,
                 model=llm_config.model,
@@ -707,6 +731,7 @@ class MemoryManager:
 
             assistant_text = agent_result.assistant_text or ""
             await self.db.add_message(
+                user_id=user_id,
                 session_id=session_id,
                 role="assistant",
                 content=assistant_text,
@@ -714,12 +739,12 @@ class MemoryManager:
                 token_count=self._count_tokens(assistant_text, llm_config.model),
             )
 
-            status = await self.get_status(session_id, llm_config.model)
+            status = await self.get_status(user_id, session_id, llm_config.model)
             flush_scheduled = False
             flush_trigger = int(status.thresholds.get("flush_trigger", thresholds.total_limit))
             if status.total_tokens >= flush_trigger and not session_after["is_flushing"]:
                 # 严格在总 token 上限处触发刷盘，不再提前到 95%。
-                await self.db.set_is_flushing(session_id, True)
+                await self.db.set_is_flushing(user_id, session_id, True)
                 flush_scheduled = True
                 status = status.model_copy(update={"is_flushing": True})
 
@@ -731,35 +756,37 @@ class MemoryManager:
             flush_scheduled=flush_scheduled,
         )
 
-    async def try_start_manual_flush(self, session_id: str) -> bool:
+    async def try_start_manual_flush(self, user_id: str, session_id: str) -> bool:
         """尝试手动启动刷盘；若已在刷盘中返回 False。"""
-        lock = await self._get_session_lock(session_id)
+        lock = await self._get_session_lock(user_id, session_id)
         async with lock:
-            await self.db.ensure_session(session_id)
-            session = await self.db.get_session(session_id)
+            await self.db.ensure_session(user_id, session_id)
+            session = await self.db.get_session(user_id, session_id)
             if session["is_flushing"]:
                 return False
-            await self.db.set_is_flushing(session_id, True)
+            await self.db.set_is_flushing(user_id, session_id, True)
             return True
 
     async def flush_session_memory(
         self,
+        user_id: str,
         session_id: str,
         llm_config: LLMConfig,
         max_tool_rounds: int,
     ) -> None:
         """执行刷盘：归档对话、重建 recent、更新工作台摘要并结束 flushing。"""
-        lock = await self._get_session_lock(session_id)
+        lock = await self._get_session_lock(user_id, session_id)
 
         async with lock:
-            await self.db.ensure_session(session_id)
-            session = await self.db.get_session(session_id)
+            await self.db.ensure_session(user_id, session_id)
+            session = await self.db.get_session(user_id, session_id)
             if not session["is_flushing"]:
-                await self.db.set_is_flushing(session_id, True)
+                await self.db.set_is_flushing(user_id, session_id, True)
 
-            thresholds = await self._get_thresholds()
+            thresholds = await self._get_thresholds(user_id)
 
             dialogue_rows = await self.db.list_messages(
+                user_id,
                 session_id,
                 zones=["dialogue", "tool"],
                 ascending=True,
@@ -768,6 +795,7 @@ class MemoryManager:
                 [f"[{row['role']}] {row['content']}" for row in dialogue_rows if str(row["content"]).strip()]
             )
             base_system = await self._compose_resident_system_text(
+                user_id=user_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=thresholds,
@@ -776,8 +804,9 @@ class MemoryManager:
         summary_text = "（无新增对话，保持原摘要）"
 
         async def _refresh_system_message() -> str:
-            latest_thresholds = await self._get_thresholds()
+            latest_thresholds = await self._get_thresholds(user_id)
             return await self._compose_resident_system_text(
+                user_id=user_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=latest_thresholds,
@@ -790,6 +819,7 @@ class MemoryManager:
                     {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
                 ]
                 archive_result = await run_agent_with_tools(
+                    user_id=user_id,
                     messages=archive_messages,
                     llm_config=llm_config,
                     max_tool_rounds=max_tool_rounds,
@@ -800,6 +830,7 @@ class MemoryManager:
             async with lock:
                 # 9% 原始最近对话预算：按 token 动态回收，超限立即停止追加更旧消息。
                 latest_dialogue_desc = await self.db.list_messages(
+                    user_id,
                     session_id,
                     zones=["dialogue", "buffer"],
                     roles=["user", "assistant"],
@@ -812,11 +843,12 @@ class MemoryManager:
                     model=llm_config.model,
                 )
 
-                await self.db.clear_messages(session_id)
+                await self.db.clear_messages(user_id, session_id)
                 for row in latest_dialogue:
                     content = str(row.get("content", ""))
                     role = str(row.get("role", "assistant"))
                     await self.db.add_message(
+                        user_id=user_id,
                         session_id=session_id,
                         role=role,
                         content=content,
@@ -824,9 +856,9 @@ class MemoryManager:
                         token_count=self._count_tokens(content, llm_config.model),
                     )
 
-                await self.db.update_workbench_summary(session_id, summary_text)
-                await self.db.set_is_flushing(session_id, False)
+                await self.db.update_workbench_summary(user_id, session_id, summary_text)
+                await self.db.set_is_flushing(user_id, session_id, False)
         except Exception:  # noqa: BLE001
             async with lock:
-                await self.db.set_is_flushing(session_id, False)
+                await self.db.set_is_flushing(user_id, session_id, False)
             raise

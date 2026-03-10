@@ -56,12 +56,13 @@ class LLMConfig(BaseModel):
 class ChatRequest(BaseModel):
     """聊天接口请求体。"""
 
+    user_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1)
     session_id: str = Field(default="default", min_length=1)
     max_tool_rounds: int = Field(default=6, ge=1, le=20)
     llm_config: LLMConfig
 
-    @field_validator("message", "session_id", mode="before")
+    @field_validator("user_id", "message", "session_id", mode="before")
     @classmethod
     def _strip_text(cls, value: Any) -> str:
         return _strip_required_text(value)
@@ -70,11 +71,12 @@ class ChatRequest(BaseModel):
 class FlushRequest(BaseModel):
     """手动刷盘请求体。"""
 
+    user_id: str = Field(..., min_length=1)
     session_id: str = Field(default="default", min_length=1)
     max_tool_rounds: int = Field(default=6, ge=1, le=20)
     llm_config: LLMConfig
 
-    @field_validator("session_id", mode="before")
+    @field_validator("user_id", "session_id", mode="before")
     @classmethod
     def _strip_session_id(cls, value: Any) -> str:
         return _strip_required_text(value)
@@ -90,6 +92,7 @@ class MemoryFileUpdateRequest(BaseModel):
 class MemoryStatusResponse(BaseModel):
     """记忆窗口状态响应体。"""
 
+    user_id: str
     session_id: str
     total_tokens: int
     resident_tokens: int
@@ -110,6 +113,7 @@ class MemoryFilesResponse(BaseModel):
 
 class FlushResponse(BaseModel):
     accepted: bool
+    user_id: str
     session_id: str
     is_flushing: bool
 
@@ -117,7 +121,13 @@ class FlushResponse(BaseModel):
 class SessionCreateRequest(BaseModel):
     """创建会话请求体（可选指定 session_id）。"""
 
+    user_id: str = Field(..., min_length=1)
     session_id: str | None = None
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def _strip_user_id(cls, value: Any) -> str:
+        return _strip_required_text(value)
 
     @field_validator("session_id", mode="before")
     @classmethod
@@ -126,6 +136,7 @@ class SessionCreateRequest(BaseModel):
 
 
 class SessionEntry(BaseModel):
+    user_id: str
     session_id: str
     is_flushing: bool
     created_at: str
@@ -144,6 +155,7 @@ class SessionCreateResponse(BaseModel):
 
 class SessionMessageEntry(BaseModel):
     id: int
+    user_id: str
     session_id: str
     role: str
     content: str
@@ -152,6 +164,7 @@ class SessionMessageEntry(BaseModel):
 
 
 class SessionMessagesResponse(BaseModel):
+    user_id: str
     session_id: str
     messages: list[SessionMessageEntry]
 
@@ -163,7 +176,7 @@ class GlobalLLMConfig(BaseModel):
     api_key: str = Field(default="sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F")
     base_url: str | None = Field(default="http://model-gateway.test.api.dotai.internal/v1")
     max_tool_rounds: int = Field(default=6, ge=1, le=20)
-    total_token_limit: int = Field(default=200_000, ge=20_000, le=2_000_000)
+    total_token_limit: int = Field(default=200000, ge=20000, le=2000000)
 
     @field_validator("model", mode="before")
     @classmethod
@@ -177,8 +190,8 @@ class GlobalLLMConfig(BaseModel):
     @classmethod
     def _strip_api_key(cls, value: Any) -> str:
         if value is None:
-            return "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
-        return _ensure_string(value).strip() or "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
+            return ""
+        return _ensure_string(value).strip()
 
     @field_validator("base_url", mode="before")
     @classmethod
@@ -189,7 +202,7 @@ class GlobalLLMConfig(BaseModel):
     @classmethod
     def _normalize_total_token_limit(cls, value: Any) -> int:
         if value is None or value == "":
-            return 200_000
+            return 200000
         if isinstance(value, bool):
             raise TypeError("字段类型必须是整数")
         try:

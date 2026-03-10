@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -53,13 +54,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     启动阶段：
     1) 初始化 SQLite（建库/建表/建索引）。
-    2) 初始化记忆文件目录（按需从模板复制）。
 
     关闭阶段：
     1) 关闭数据库连接。
     """
     await db.initialize()
-    await ensure_memory_files_exist()
     try:
         yield
     finally:
@@ -72,6 +71,9 @@ app = FastAPI(title="agent-demo", version="1.0.0", lifespan=lifespan)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -112,6 +114,7 @@ async def _cancel_task_silently(task: asyncio.Task[Any]) -> None:
 def _build_session_entry(data: dict[str, Any]) -> SessionEntry:
     """数据库行 -> SessionEntry，统一做类型兜底，降低脏数据对接口层影响。"""
     return SessionEntry(
+        user_id=str(data.get("user_id", "")),
         session_id=str(data.get("session_id", "")),
         is_flushing=bool(data.get("is_flushing", False)),
         created_at=str(data.get("created_at", "")),
@@ -124,6 +127,7 @@ def _build_session_message_entry(data: dict[str, Any]) -> SessionMessageEntry:
     """数据库行 -> SessionMessageEntry。"""
     return SessionMessageEntry(
         id=int(data.get("id", 0)),
+        user_id=str(data.get("user_id", "")),
         session_id=str(data.get("session_id", "")),
         role=str(data.get("role", "")),
         content=str(data.get("content", "")),
@@ -139,7 +143,30 @@ def _new_session_id() -> str:
     return f"session-{timestamp}-{suffix}"
 
 
-async def _collect_memory_files() -> list[MemoryFileEntry]:
+def _require_user_id(user_id: str) -> str:
+    """统一做 user_id 的字符串收敛，避免空白值透传。"""
+    normalized = str(user_id or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="user_id 不能为空")
+    if not USER_ID_PATTERN.fullmatch(normalized):
+        raise HTTPException(
+            status_code=400,
+            detail="user_id 仅允许字母、数字、点、下划线、短横线，且必须以字母或数字开头",
+        )
+    return normalized
+
+
+async def _ensure_user_memory_files(user_id: str) -> str:
+    """按需初始化指定用户的记忆目录。"""
+    normalized = _require_user_id(user_id)
+    try:
+        await ensure_memory_files_exist(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return normalized
+
+
+async def _collect_memory_files(user_id: str) -> list[MemoryFileEntry]:
     """
     读取当前可管理的全部记忆文件。
 
@@ -148,9 +175,9 @@ async def _collect_memory_files() -> list[MemoryFileEntry]:
     - 某个文件缺失时返回空字符串，避免前端因单文件异常导致整页失败。
     """
     files: list[MemoryFileEntry] = []
-    for file_name in list_memory_file_names():
+    for file_name in list_memory_file_names(user_id):
         try:
-            content = await read_memory_file_impl(file_name)
+            content = await read_memory_file_impl(user_id=user_id, file_name=file_name)
         except FileNotFoundError:
             content = ""
         files.append(MemoryFileEntry(file_name=file_name, content=content))
@@ -166,61 +193,82 @@ async def index() -> Any:
 
 
 @app.get("/api/sessions", response_model=SessionListResponse)
-async def list_sessions() -> SessionListResponse:
-    rows = await db.list_sessions(limit=300)
+async def list_sessions(user_id: str = Query(..., min_length=1)) -> SessionListResponse:
+    normalized_user_id = _require_user_id(user_id)
+    rows = await db.list_sessions(normalized_user_id, limit=300)
     entries = [_build_session_entry(row) for row in rows]
     return SessionListResponse(sessions=entries)
 
 
 @app.post("/api/sessions", response_model=SessionCreateResponse)
 async def create_session(request: SessionCreateRequest) -> SessionCreateResponse:
+    user_id = _require_user_id(request.user_id)
     # 优先使用请求里传入的 ID；若为空则自动生成。
     session_id = (request.session_id or "").strip() or _new_session_id()
     # SQLiteStore.create_session 已包含“创建后读取”，不再重复查询。
-    session = await db.create_session(session_id)
+    session = await db.create_session(user_id, session_id)
     entry = _build_session_entry({**session, "message_count": 0})
     return SessionCreateResponse(created=True, session=entry)
 
 
 @app.get("/api/session-messages", response_model=SessionMessagesResponse)
 async def get_session_messages(
+    user_id: str = Query(..., min_length=1),
     session_id: str = Query(..., min_length=1),
     limit: int = Query(default=500, ge=1, le=5000),
 ) -> SessionMessagesResponse:
-    rows = await db.list_messages(session_id=session_id, ascending=True, limit=limit)
+    normalized_user_id = _require_user_id(user_id)
+    normalized_session_id = str(session_id).strip()
+    rows = await db.list_messages(
+        user_id=normalized_user_id,
+        session_id=normalized_session_id,
+        ascending=True,
+        limit=limit,
+    )
     entries = [_build_session_message_entry(row) for row in rows]
-    return SessionMessagesResponse(session_id=session_id, messages=entries)
+    return SessionMessagesResponse(
+        user_id=normalized_user_id,
+        session_id=normalized_session_id,
+        messages=entries,
+    )
 
 
 @app.get("/api/settings", response_model=GlobalLLMConfig)
-async def get_global_settings() -> GlobalLLMConfig:
+async def get_global_settings(user_id: str = Query(..., min_length=1)) -> GlobalLLMConfig:
     """通用设置读取接口（包含 LLM 与上下文窗口设置）。"""
-    config = await db.get_global_llm_config()
+    normalized_user_id = _require_user_id(user_id)
+    config = await db.get_global_llm_config(normalized_user_id)
     return GlobalLLMConfig(**config)
 
 
 @app.put("/api/settings", response_model=GlobalLLMConfig)
-async def update_global_settings(config: GlobalLLMConfig) -> GlobalLLMConfig:
+async def update_global_settings(config: GlobalLLMConfig, user_id: str = Query(..., min_length=1)) -> GlobalLLMConfig:
     """通用设置更新接口（包含 LLM 与上下文窗口设置）。"""
+    normalized_user_id = _require_user_id(user_id)
     await db.update_global_llm_config(
+        user_id=normalized_user_id,
         model=config.model,
         api_key=config.api_key,
         base_url=config.base_url,
         max_tool_rounds=config.max_tool_rounds,
         total_token_limit=config.total_token_limit,
     )
-    latest = await db.get_global_llm_config()
+    latest = await db.get_global_llm_config(normalized_user_id)
     return GlobalLLMConfig(**latest)
 
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> StreamingResponse:
+    normalized_user_id = await _ensure_user_memory_files(request.user_id)
+    normalized_session_id = str(request.session_id).strip()
+
     async def event_stream() -> AsyncIterator[str]:
         # 首帧先发元信息，前端可立即知道当前会话和模型配置。
         yield _sse(
             "meta",
             {
-                "session_id": request.session_id,
+                "user_id": normalized_user_id,
+                "session_id": normalized_session_id,
                 "model": request.llm_config.model,
                 "max_tool_rounds": request.max_tool_rounds,
             },
@@ -233,7 +281,8 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> Strea
 
         process_task = asyncio.create_task(
             memory_manager.process_chat(
-                session_id=request.session_id,
+                user_id=normalized_user_id,
+                session_id=normalized_session_id,
                 user_message=request.message,
                 llm_config=request.llm_config,
                 max_tool_rounds=request.max_tool_rounds,
@@ -266,7 +315,8 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> Strea
                 # 本轮结束后异步刷盘，不阻塞当前聊天请求。
                 background_tasks.add_task(
                     memory_manager.flush_session_memory,
-                    request.session_id,
+                    normalized_user_id,
+                    normalized_session_id,
                     request.llm_config,
                     request.max_tool_rounds,
                 )
@@ -292,36 +342,54 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> Strea
 
 @app.get("/api/memory/status", response_model=MemoryStatusResponse)
 async def memory_status(
+    user_id: str = Query(..., min_length=1),
     session_id: str = Query(default="default", min_length=1),
     model: str = Query(default="agent-advoo", min_length=1),
 ) -> MemoryStatusResponse:
-    return await memory_manager.get_status(session_id=session_id, model=model)
+    normalized_user_id = await _ensure_user_memory_files(user_id)
+    normalized_session_id = str(session_id).strip()
+    return await memory_manager.get_status(
+        user_id=normalized_user_id,
+        session_id=normalized_session_id,
+        model=model,
+    )
 
 
 @app.get("/api/memory/files", response_model=MemoryFilesResponse)
-async def memory_files() -> MemoryFilesResponse:
-    files = await _collect_memory_files()
+async def memory_files(user_id: str = Query(..., min_length=1)) -> MemoryFilesResponse:
+    normalized_user_id = await _ensure_user_memory_files(user_id)
+    files = await _collect_memory_files(normalized_user_id)
     return MemoryFilesResponse(files=files)
 
 
 @app.post("/api/memory/reset")
-async def reset_memory_files() -> dict[str, Any]:
+async def reset_memory_files(user_id: str = Query(..., min_length=1)) -> dict[str, Any]:
+    normalized_user_id = _require_user_id(user_id)
     # 重置 memory：清空 data/memory 后用代码内置初始内容覆盖重建。
-    restored_files = await reset_memory_to_initial_content()
-    files = await _collect_memory_files()
+    try:
+        restored_files = await reset_memory_to_initial_content(normalized_user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    files = await _collect_memory_files(normalized_user_id)
     return {"ok": True, "restored_files": restored_files, "files": [f.model_dump() for f in files]}
 
 
 @app.put("/api/memory/files/{file_name}")
-async def update_memory_file(file_name: str, body: MemoryFileUpdateRequest) -> dict[str, Any]:
+async def update_memory_file(
+    file_name: str,
+    body: MemoryFileUpdateRequest,
+    user_id: str = Query(..., min_length=1),
+) -> dict[str, Any]:
+    normalized_user_id = await _ensure_user_memory_files(user_id)
     try:
         await write_memory_file_impl(
+            user_id=normalized_user_id,
             file_name=file_name,
             content=body.content,
             mode=body.mode,
             allow_system_prompt=True,
         )
-        latest = await read_memory_file_impl(file_name)
+        latest = await read_memory_file_impl(user_id=normalized_user_id, file_name=file_name)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, PermissionError) as exc:
@@ -331,18 +399,22 @@ async def update_memory_file(file_name: str, body: MemoryFileUpdateRequest) -> d
 
 @app.post("/api/memory/flush", response_model=FlushResponse)
 async def memory_flush(request: FlushRequest, background_tasks: BackgroundTasks) -> FlushResponse:
+    normalized_user_id = await _ensure_user_memory_files(request.user_id)
+    normalized_session_id = str(request.session_id).strip()
     # 手动触发刷盘：若当前会话已在刷盘中，则 accepted=False，不重复调度。
-    accepted = await memory_manager.try_start_manual_flush(request.session_id)
+    accepted = await memory_manager.try_start_manual_flush(normalized_user_id, normalized_session_id)
     if accepted:
         background_tasks.add_task(
             memory_manager.flush_session_memory,
-            request.session_id,
+            normalized_user_id,
+            normalized_session_id,
             request.llm_config,
             request.max_tool_rounds,
         )
-    status = await memory_manager.get_status(request.session_id, request.llm_config.model)
+    status = await memory_manager.get_status(normalized_user_id, normalized_session_id, request.llm_config.model)
     return FlushResponse(
         accepted=accepted,
-        session_id=request.session_id,
+        user_id=normalized_user_id,
+        session_id=normalized_session_id,
         is_flushing=status.is_flushing,
     )

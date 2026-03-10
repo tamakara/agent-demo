@@ -4,6 +4,8 @@ const elements = {
   baseUrl: document.getElementById("baseUrl"),
   maxToolRounds: document.getElementById("maxToolRounds"),
   totalTokenLimit: document.getElementById("totalTokenLimit"),
+  currentUserId: document.getElementById("currentUserId"),
+  switchUserBtn: document.getElementById("switchUserBtn"),
   
   // 弹窗控制节点
   openSettingsBtn: document.getElementById("openSettingsBtn"),
@@ -32,6 +34,7 @@ const elements = {
 };
 
 const state = {
+  userId: "",
   sessions: [],
   activeSessionId: "",
   files: [],
@@ -42,6 +45,7 @@ const state = {
 const DEFAULT_LLM_MODEL = "agent-advoo";
 const DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F";
 const DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1";
+const USER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function stringifyForDisplay(value) {
   if (typeof value === "string") {
@@ -155,6 +159,47 @@ function setDefaultLLMConfig() {
     max_tool_rounds: 6,
     total_token_limit: 200000,
   });
+}
+
+function setActiveUserId(userId) {
+  state.userId = userId;
+  if (elements.currentUserId) {
+    elements.currentUserId.textContent = userId;
+  }
+}
+
+function requireUserId() {
+  if (!state.userId) {
+    throw new Error("user_id 未设置，请先输入用户ID。");
+  }
+  return state.userId;
+}
+
+function buildUserQuery(extra = {}) {
+  const params = new URLSearchParams(extra);
+  params.set("user_id", requireUserId());
+  return params;
+}
+
+function promptForUserId() {
+  const initial = state.userId || "";
+  while (true) {
+    const raw = window.prompt("请输入用户ID（字母/数字/._-，最长64位）", initial);
+    if (raw === null) {
+      continue;
+    }
+    const candidate = raw.trim();
+    if (!candidate) {
+      window.alert("用户ID不能为空。");
+      continue;
+    }
+    if (!USER_ID_PATTERN.test(candidate)) {
+      window.alert("用户ID仅允许字母、数字、点、下划线、短横线，且必须以字母或数字开头。");
+      continue;
+    }
+    setActiveUserId(candidate);
+    return;
+  }
 }
 
 // === 更新后的节点追加渲染函数，包含折叠逻辑 ===
@@ -388,7 +433,7 @@ async function loadSessionHistory(options = {}) {
     return;
   }
 
-  const params = new URLSearchParams({
+  const params = buildUserQuery({
     session_id: state.activeSessionId,
     limit: "2000",
   });
@@ -431,7 +476,8 @@ function renderSessionSelect() {
 }
 
 async function loadSessions() {
-  const resp = await fetch("/api/sessions");
+  const params = buildUserQuery();
+  const resp = await fetch(`/api/sessions?${params.toString()}`);
   if (!resp.ok) {
     throw new Error(`加载 session 列表失败：${resp.status}`);
   }
@@ -443,7 +489,7 @@ async function createSession() {
   const resp = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ user_id: requireUserId() }),
   });
   if (!resp.ok) {
     throw new Error(`创建 session 失败：${resp.status}`);
@@ -453,7 +499,8 @@ async function createSession() {
 }
 
 async function loadGlobalLLMConfig() {
-  const resp = await fetch("/api/settings");
+  const params = buildUserQuery();
+  const resp = await fetch(`/api/settings?${params.toString()}`);
   if (!resp.ok) {
     throw new Error(`加载全局设置失败：${resp.status}`);
   }
@@ -478,7 +525,8 @@ async function saveConfig() {
   };
 
   try {
-    const resp = await fetch("/api/settings", {
+    const params = buildUserQuery();
+    const resp = await fetch(`/api/settings?${params.toString()}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -519,6 +567,25 @@ async function ensureActiveSession() {
   }
 
   renderSessionSelect();
+}
+
+async function switchUserContext(options = {}) {
+  const announce = options.announce !== false;
+  promptForUserId();
+  state.activeSessionId = "";
+  state.files = [];
+  state.activeFile = null;
+  clearChatLog();
+
+  await ensureActiveSession();
+  await loadGlobalLLMConfig();
+  await loadSessionHistory({ announce: false });
+  await loadMemoryFiles();
+  await refreshStatus();
+
+  if (announce) {
+    reportMeta(`已切换用户：${state.userId}`);
+  }
 }
 
 async function handleCreateSession() {
@@ -592,6 +659,7 @@ async function sendChat(message) {
   appendChatItem("user", message);
 
   const payload = {
+    user_id: requireUserId(),
     message,
     session_id: state.activeSessionId,
     max_tool_rounds: config.max_tool_rounds,
@@ -667,6 +735,7 @@ function updateTokenBoard(status) {
   elements.bufferBar.style.width = `${bufferPercent}%`;
 
   elements.tokenSummary.innerHTML =
+    `user id：<b>${status.user_id || state.userId || "-"}</b><br>` +
     `session id：<b>${status.session_id}</b><br>` +
     `total：<b>${total}</b> / ${totalLimit} token（刷盘阈值：${flushTrigger}）<br>` +
     `常驻区：${resident} | 对话区：${dialogue} | 缓冲区：${buffer}<br>` +
@@ -680,7 +749,7 @@ async function refreshStatus() {
     return;
   }
 
-  const params = new URLSearchParams({
+  const params = buildUserQuery({
     session_id: state.activeSessionId,
     model: config.model || DEFAULT_LLM_MODEL,
   });
@@ -736,7 +805,8 @@ function renderFileTabs() {
 
 async function loadMemoryFiles() {
   try {
-    const resp = await fetch("/api/memory/files");
+    const params = buildUserQuery();
+    const resp = await fetch(`/api/memory/files?${params.toString()}`);
     if (!resp.ok) {
       reportError(`加载文件失败：${resp.status}`);
       return;
@@ -758,7 +828,8 @@ async function resetMemoryFiles() {
   }
 
   try {
-    const resp = await fetch("/api/memory/reset", {
+    const params = buildUserQuery();
+    const resp = await fetch(`/api/memory/reset?${params.toString()}`, {
       method: "POST",
     });
     const data = await resp.json();
@@ -792,7 +863,8 @@ async function saveActiveFile() {
   const encoded = encodeURIComponent(state.activeFile);
 
   try {
-    const resp = await fetch(`/api/memory/files/${encoded}`, {
+    const params = buildUserQuery();
+    const resp = await fetch(`/api/memory/files/${encoded}?${params.toString()}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, mode: "overwrite" }),
@@ -830,6 +902,7 @@ async function forceFlush() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        user_id: requireUserId(),
         session_id: state.activeSessionId,
         max_tool_rounds: config.max_tool_rounds,
         llm_config: {
@@ -851,6 +924,16 @@ async function forceFlush() {
 }
 
 function bindEvents() {
+  if (elements.switchUserBtn) {
+    elements.switchUserBtn.addEventListener("click", async () => {
+      try {
+        await switchUserContext();
+      } catch (err) {
+        reportError(err);
+      }
+    });
+  }
+
   // === 弹窗 Modal 控制 ===
   elements.openSettingsBtn.addEventListener("click", () => {
     elements.settingsModal.showModal();
@@ -931,6 +1014,7 @@ function bindEvents() {
 async function bootstrap() {
   bindEvents();
   setDefaultLLMConfig();
+  promptForUserId();
   try {
     await ensureActiveSession();
     await loadGlobalLLMConfig(); // 加载全局配置

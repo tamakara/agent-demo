@@ -312,6 +312,7 @@ def _append_tool_result_message(
 
 
 async def run_agent_with_tools(
+    user_id: str,
     messages: list[dict[str, Any]],
     llm_config: LLMConfig,
     max_tool_rounds: int = 6,
@@ -344,6 +345,7 @@ async def run_agent_with_tools(
             llm_request_event = {
                 "event": "meta",
                 "type": "llm_request",
+                "user_id": user_id,
                 "round": round_index + 1,
                 "llm_api": {
                     "sdk": "openai.AsyncOpenAI",
@@ -436,7 +438,7 @@ async def run_agent_with_tools(
                     await _record_event(tool_call_event, tool_events=tool_events, callback=on_event)
 
                     try:
-                        tool_result = await execute_tool_call(tool_name, tool_args)
+                        tool_result = await execute_tool_call(tool_name, tool_args, user_id=user_id)
                         payload_result: dict[str, Any] = {"result": tool_result}
                     except Exception as exc:  # noqa: BLE001
                         payload_result = {"error": f"工具执行失败：{exc}"}
