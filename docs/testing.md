@@ -27,7 +27,7 @@ python -m unittest discover -s tests -v
 
 ### 3.2 API 集成
 
-- `/sessions`
+- `/employees`
 - `/settings`
 - `/memory/files`
 - `/memory/status`
@@ -48,4 +48,4 @@ python -m unittest discover -s tests -v
 
 1. 为 `chat/stream` 增加真实流式集成测试
 2. 为刷盘流程增加失败回滚场景测试
-3. 为并发场景增加多会话压力测试
+3. 为并发场景增加多员工压力测试

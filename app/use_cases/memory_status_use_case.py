@@ -12,7 +12,11 @@ class MemoryStatusUseCase:
         """注入记忆上下文服务。"""
         self.memory_context = memory_context
 
-    async def execute(self, *, user_id: str, session_id: str, model: str) -> MemoryStatus:
+    async def execute(self, *, user_id: str, employee_id: str, session_id: str, model: str) -> MemoryStatus:
         """查询并返回会话记忆状态。"""
-        return await self.memory_context.get_status(user_id=user_id, session_id=session_id, model=model)
-
+        return await self.memory_context.get_status(
+            user_id=user_id,
+            employee_id=employee_id,
+            session_id=session_id,
+            model=model,
+        )

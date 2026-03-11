@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.services.employee_service import EmployeeService
 from app.services.memory_file_service import MemoryFileService
-from app.services.session_service import SessionService
 from app.services.settings_service import SettingsService
 from app.use_cases.chat_stream_use_case import ChatStreamUseCase
 from app.use_cases.flush_use_case import FlushUseCase
@@ -27,7 +27,7 @@ class AppContainer:
     chat_stream_use_case: ChatStreamUseCase
     flush_use_case: FlushUseCase
     memory_status_use_case: MemoryStatusUseCase
-    session_service: SessionService
+    employee_service: EmployeeService
     settings_service: SettingsService
     memory_file_service: MemoryFileService
 
@@ -60,7 +60,7 @@ async def build_container() -> AppContainer:
     flush_use_case = FlushUseCase(memory_context)
     memory_status_use_case = MemoryStatusUseCase(memory_context)
 
-    session_service = SessionService(session_repo=sqlite_repo, message_repo=sqlite_repo)
+    employee_service = EmployeeService(session_repo=sqlite_repo, message_repo=sqlite_repo)
     settings_service = SettingsService(settings_repo=sqlite_repo)
     memory_file_service = MemoryFileService(memory_repo=memory_file_repo)
 
@@ -70,8 +70,7 @@ async def build_container() -> AppContainer:
         chat_stream_use_case=chat_stream_use_case,
         flush_use_case=flush_use_case,
         memory_status_use_case=memory_status_use_case,
-        session_service=session_service,
+        employee_service=employee_service,
         settings_service=settings_service,
         memory_file_service=memory_file_service,
     )
-

@@ -1,4 +1,4 @@
-"""记忆上下文用例：管理窗口、摘要与刷盘生命周期。"""
+﻿"""记忆上下文用例：管理窗口、摘要与刷盘生命周期。"""
 
 from __future__ import annotations
 
@@ -107,6 +107,7 @@ class MemoryContextService:
     async def _compose_resident_system_text(
         self,
         user_id: str,
+        employee_id: str,
         session_id: str,
         model: str,
         thresholds: WindowThresholds,
@@ -115,6 +116,7 @@ class MemoryContextService:
         session = await self.session_repo.get_session(user_id, session_id)
         return await self.prompt_composer.compose_resident_system_text(
             user_id=user_id,
+            employee_id=employee_id,
             session=session,
             model=model,
             thresholds=thresholds,
@@ -125,12 +127,19 @@ class MemoryContextService:
     async def _build_chat_messages(
         self,
         user_id: str,
+        employee_id: str,
         session_id: str,
         model: str,
         thresholds: WindowThresholds,
     ) -> list[dict[str, Any]]:
         """构建发给 LLM 的消息列表（system + recent + active）。"""
-        resident_text = await self._compose_resident_system_text(user_id, session_id, model, thresholds)
+        resident_text = await self._compose_resident_system_text(
+            user_id,
+            employee_id,
+            session_id,
+            model,
+            thresholds,
+        )
 
         # resident_recent 只保留最近预算内内容，控制提示词膨胀。
         resident_recent_all = await self.message_repo.list_messages(
@@ -182,17 +191,25 @@ class MemoryContextService:
     async def _resident_static_tokens(
         self,
         user_id: str,
+        employee_id: str,
         session_id: str,
         model: str,
         thresholds: WindowThresholds,
     ) -> int:
         """估算常驻 system 静态部分的 token 消耗。"""
-        text = await self._compose_resident_system_text(user_id, session_id, model, thresholds)
+        text = await self._compose_resident_system_text(
+            user_id,
+            employee_id,
+            session_id,
+            model,
+            thresholds,
+        )
         return self.token_counter.count_tokens(text, model)
 
     async def get_status(
         self,
         user_id: str,
+        employee_id: str,
         session_id: str,
         model: str = "agent-advoo",
     ) -> MemoryStatus:
@@ -217,7 +234,13 @@ class MemoryContextService:
         )
 
         # 总 token = 常驻静态 + 常驻近期 + 对话区 + 缓冲区。
-        resident_static_tokens = await self._resident_static_tokens(user_id, session_id, model, thresholds)
+        resident_static_tokens = await self._resident_static_tokens(
+            user_id,
+            employee_id,
+            session_id,
+            model,
+            thresholds,
+        )
         resident_tokens = resident_static_tokens + resident_recent_tokens
 
         dialogue_tokens = zone_tokens.get("dialogue", 0) + zone_tokens.get("tool", 0)
@@ -226,6 +249,7 @@ class MemoryContextService:
 
         return MemoryStatus(
             user_id=user_id,
+            employee_id=employee_id,
             session_id=session_id,
             total_tokens=total_tokens,
             resident_tokens=resident_tokens,
@@ -238,6 +262,7 @@ class MemoryContextService:
     async def process_chat(
         self,
         user_id: str,
+        employee_id: str,
         session_id: str,
         user_message: str,
         llm_config: LLMConfig,
@@ -262,6 +287,7 @@ class MemoryContextService:
             latest_thresholds = await self._get_thresholds(user_id)
             return await self._compose_resident_system_text(
                 user_id=user_id,
+                employee_id=employee_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=latest_thresholds,
@@ -284,6 +310,7 @@ class MemoryContextService:
             )
             prompt_messages = await self._build_chat_messages(
                 user_id=user_id,
+                employee_id=employee_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=thresholds,
@@ -292,6 +319,7 @@ class MemoryContextService:
             # 2) 调用 LLM（含工具循环）。
             agent_result = await self.llm_gateway.run_with_tools(
                 user_id=user_id,
+                employee_id=employee_id,
                 messages=prompt_messages,
                 llm_config=llm_config,
                 max_tool_rounds=max_tool_rounds,
@@ -320,7 +348,7 @@ class MemoryContextService:
                 token_count=self.token_counter.count_tokens(assistant_text, llm_config.model),
             )
 
-            status = await self.get_status(user_id, session_id, llm_config.model)
+            status = await self.get_status(user_id, employee_id, session_id, llm_config.model)
             flush_scheduled = False
             flush_trigger = int(status.thresholds.get("flush_trigger", thresholds.total_limit))
             if status.total_tokens >= flush_trigger and not session_after["is_flushing"]:
@@ -329,6 +357,7 @@ class MemoryContextService:
                 flush_scheduled = True
                 status = MemoryStatus(
                     user_id=status.user_id,
+                    employee_id=status.employee_id,
                     session_id=status.session_id,
                     total_tokens=status.total_tokens,
                     resident_tokens=status.resident_tokens,
@@ -360,6 +389,7 @@ class MemoryContextService:
     async def flush_session_memory(
         self,
         user_id: str,
+        employee_id: str,
         session_id: str,
         llm_config: LLMConfig,
         max_tool_rounds: int,
@@ -387,6 +417,7 @@ class MemoryContextService:
             )
             base_system = await self._compose_resident_system_text(
                 user_id=user_id,
+                employee_id=employee_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=thresholds,
@@ -399,6 +430,7 @@ class MemoryContextService:
             latest_thresholds = await self._get_thresholds(user_id)
             return await self._compose_resident_system_text(
                 user_id=user_id,
+                employee_id=employee_id,
                 session_id=session_id,
                 model=llm_config.model,
                 thresholds=latest_thresholds,
@@ -413,6 +445,7 @@ class MemoryContextService:
                 ]
                 archive_result = await self.llm_gateway.run_with_tools(
                     user_id=user_id,
+                    employee_id=employee_id,
                     messages=archive_messages,
                     llm_config=llm_config,
                     max_tool_rounds=max_tool_rounds,
@@ -456,4 +489,3 @@ class MemoryContextService:
             async with lock:
                 await self.session_repo.set_is_flushing(user_id, session_id, False)
             raise
-

@@ -1,4 +1,4 @@
-# SSE 协议说明
+﻿# SSE 协议说明
 
 ## 本文范围
 
@@ -27,7 +27,8 @@ data: { ...json envelope... }
   "seq": 1,
   "request_id": "...",
   "ts": "2026-03-11T15:20:00.000000Z",
-  "session_id": "default",
+  "employee_id": "1",
+  "session_id": "employee-1",
   "payload": {}
 }
 ```
@@ -38,7 +39,8 @@ data: { ...json envelope... }
 - `seq`：单请求内自增序号
 - `request_id`：请求标识
 - `ts`：事件时间戳（UTC）
-- `session_id`：当前会话
+- `employee_id`：当前数字员工编号
+- `session_id`：当前员工绑定会话 ID
 - `payload`：业务负载
 
 ## 3. 事件类型
@@ -79,7 +81,8 @@ data: { ...json envelope... }
   "seq": 3,
   "request_id": "ab12cd34",
   "ts": "2026-03-11T15:21:03.001000Z",
-  "session_id": "default",
+  "employee_id": "2",
+  "session_id": "employee-2",
   "payload": {
     "event": "tool_call",
     "tool_name": "read_memory_file",

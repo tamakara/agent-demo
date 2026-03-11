@@ -35,6 +35,7 @@ class OpenAIGateway(LLMGatewayPort):
     async def run_with_tools(
         self,
         user_id: str,
+        employee_id: str,
         messages: list[dict[str, Any]],
         llm_config: LLMConfig,
         max_tool_rounds: int,
@@ -121,6 +122,7 @@ class OpenAIGateway(LLMGatewayPort):
                         normalized_tool_calls=normalized_tool_calls,
                         assistant_tool_content=assistant_tool_content,
                         user_id=user_id,
+                        employee_id=employee_id,
                         tool_runner=self.tool_runner,
                         working_messages=working_messages,
                         on_event=on_event,
@@ -154,4 +156,3 @@ class OpenAIGateway(LLMGatewayPort):
             working_messages=working_messages,
             reached_tool_limit=True,
         )
-

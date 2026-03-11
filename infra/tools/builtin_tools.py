@@ -29,19 +29,28 @@ class BuiltinToolRunner:
             raise ValidationError("mode 只能是 'append' 或 'overwrite'")
         return cast(str, mode)
 
-    async def execute(self, tool_name: str, arguments: dict[str, Any], *, user_id: str) -> str:
+    async def execute(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        user_id: str,
+        employee_id: str,
+    ) -> str:
         """根据工具名分发执行内置工具。"""
         normalized_tool_name = str(tool_name).strip()
 
         if normalized_tool_name == "read_memory_file":
             return await self.memory_repo.read_memory_file(
                 user_id=user_id,
+                employee_id=employee_id,
                 file_name=self._string_arg(arguments, "file_name"),
             )
 
         if normalized_tool_name == "write_memory_file":
             return await self.memory_repo.write_memory_file(
                 user_id=user_id,
+                employee_id=employee_id,
                 file_name=self._string_arg(arguments, "file_name"),
                 content=self._string_arg(arguments, "content"),
                 mode=self._mode_arg(arguments, "mode", "append"),
@@ -51,4 +60,3 @@ class BuiltinToolRunner:
             return await self.clock.get_current_time()
 
         raise ValidationError(f"未知工具：{normalized_tool_name}")
-

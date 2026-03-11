@@ -21,6 +21,7 @@ class FlushUseCase:
         self,
         *,
         user_id: str,
+        employee_id: str,
         session_id: str,
         llm_config: LLMConfig,
         max_tool_rounds: int,
@@ -28,6 +29,7 @@ class FlushUseCase:
         """执行一次会话刷盘流程。"""
         await self.memory_context.flush_session_memory(
             user_id=user_id,
+            employee_id=employee_id,
             session_id=session_id,
             llm_config=llm_config,
             max_tool_rounds=max_tool_rounds,
@@ -37,6 +39,7 @@ class FlushUseCase:
         self,
         *,
         user_id: str,
+        employee_id: str,
         session_id: str,
         llm_config: LLMConfig,
         max_tool_rounds: int,
@@ -46,15 +49,16 @@ class FlushUseCase:
         if accepted:
             await self.flush(
                 user_id=user_id,
+                employee_id=employee_id,
                 session_id=session_id,
                 llm_config=llm_config,
                 max_tool_rounds=max_tool_rounds,
             )
-        status = await self.memory_context.get_status(user_id, session_id, llm_config.model)
+        status = await self.memory_context.get_status(user_id, employee_id, session_id, llm_config.model)
         return FlushResult(
             accepted=accepted,
             user_id=user_id,
+            employee_id=employee_id,
             session_id=session_id,
             is_flushing=status.is_flushing,
         )
-

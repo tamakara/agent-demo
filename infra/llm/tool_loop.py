@@ -119,6 +119,7 @@ async def process_tool_calls(
     normalized_tool_calls: list[dict[str, Any]],
     assistant_tool_content: str,
     user_id: str,
+    employee_id: str,
     tool_runner: BuiltinToolRunner,
     working_messages: list[dict[str, Any]],
     on_event: EventCallback | None,
@@ -176,7 +177,12 @@ async def process_tool_calls(
         await record_event(tool_call_event, tool_events=tool_events, callback=on_event)
 
         try:
-            tool_result = await tool_runner.execute(tool_name, tool_args, user_id=user_id)
+            tool_result = await tool_runner.execute(
+                tool_name,
+                tool_args,
+                user_id=user_id,
+                employee_id=employee_id,
+            )
             payload_result: dict[str, Any] = {"result": tool_result}
         except Exception as exc:  # noqa: BLE001
             # 工具执行异常转换为 error payload，避免中断整轮对话。
@@ -206,4 +212,3 @@ async def process_tool_calls(
                 on_event=on_event,
                 tool_events=tool_events,
             )
-

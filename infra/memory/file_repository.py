@@ -1,7 +1,8 @@
-"""文件系统记忆仓储实现。"""
+﻿"""文件系统记忆仓储实现。"""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal, cast
 
 import aiofiles
@@ -13,11 +14,14 @@ from .storage_layout import (
     ASSET_PLACEHOLDER_FILE,
     COMPRESSED_MEMORY_FILE,
     EMPLOYEE_ONE,
+    NOTEBOOK_SUBDIR,
     PERSONA_FILE,
     SYSTEM_PROMPT_FILE,
     resolve_memory_path,
+    resolve_memory_relative_path,
     user_brand_library_dir,
     user_employee_dir,
+    user_employee_member_dir,
     user_employee_memory_file,
     user_employee_notebook_dir,
     user_employee_skills_dir,
@@ -30,7 +34,7 @@ from .storage_layout import (
 WriteMode = Literal["append", "overwrite"]
 
 
-EMPLOYEE_ONE_INITIAL_MEMORY_FILES: dict[str, str] = {
+EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
     COMPRESSED_MEMORY_FILE: (
         "# 压缩记忆\n\n"
         "- 记录经过压缩后的关键长期记忆。\n"
@@ -72,12 +76,13 @@ PREFERRED_FILE_ORDER = [
 class FileMemoryRepository(MemoryFileRepositoryPort):
     """基于本地文件系统的记忆仓储。"""
 
-    def _ensure_user_scaffold(self, user_id: str) -> None:
-        """确保用户目录骨架存在。"""
+    def _ensure_user_scaffold(self, user_id: str, employee_id: str) -> None:
+        """确保用户目录骨架与指定员工目录存在。"""
         user_root = user_root_dir(user_id)
         employee_root = user_employee_dir(user_id)
         brand_dir = user_brand_library_dir(user_id)
         skill_dir = user_skill_library_dir(user_id)
+        employee_dir = user_employee_member_dir(user_id, employee_id)
 
         user_root.mkdir(parents=True, exist_ok=True)
 
@@ -85,19 +90,20 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             employee_root,
             brand_dir,
             skill_dir,
-            user_employee_notebook_dir(user_id, EMPLOYEE_ONE),
-            user_employee_workspace_dir(user_id, EMPLOYEE_ONE),
-            user_employee_skills_dir(user_id, EMPLOYEE_ONE),
+            employee_dir,
+            user_employee_notebook_dir(user_id, employee_id),
+            user_employee_workspace_dir(user_id, employee_id),
+            user_employee_skills_dir(user_id, employee_id),
         ]
         for sub_dir in scaffold_dirs:
             sub_dir.mkdir(parents=True, exist_ok=True)
 
-    def _write_initial_memory_files(self, *, user_id: str, overwrite: bool) -> list[str]:
+    def _write_initial_memory_files(self, *, user_id: str, employee_id: str, overwrite: bool) -> list[str]:
         """写入初始记忆文件，返回实际写入的文件名列表。"""
-        self._ensure_user_scaffold(user_id)
+        self._ensure_user_scaffold(user_id, employee_id)
         written: list[str] = []
-        for file_name, initial_content in EMPLOYEE_ONE_INITIAL_MEMORY_FILES.items():
-            target = resolve_memory_path(user_id=user_id, file_name=file_name)
+        for file_name, initial_content in EMPLOYEE_INITIAL_MEMORY_FILES.items():
+            target = resolve_memory_path(user_id=user_id, employee_id=employee_id, file_name=file_name)
             if target.exists() and not overwrite:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -105,15 +111,15 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             written.append(file_name)
         return written
 
-    def _clear_memory_files(self, *, user_id: str) -> None:
-        """清空 employee/1 中的记忆 Markdown 文件，保留 workspace/skills。"""
-        self._ensure_user_scaffold(user_id)
+    def _clear_memory_files(self, *, user_id: str, employee_id: str) -> None:
+        """清空 employee/{id} 中的记忆 Markdown 文件，保留 workspace/skills。"""
+        self._ensure_user_scaffold(user_id, employee_id)
 
-        memory_file = user_employee_memory_file(user_id, EMPLOYEE_ONE)
+        memory_file = user_employee_memory_file(user_id, employee_id)
         if memory_file.exists() and memory_file.is_file():
             memory_file.unlink()
 
-        notebook_dirs = [user_employee_notebook_dir(user_id, EMPLOYEE_ONE)]
+        notebook_dirs = [user_employee_notebook_dir(user_id, employee_id)]
         for notebook_dir in notebook_dirs:
             if not notebook_dir.exists():
                 continue
@@ -121,16 +127,16 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
                 if item.is_file():
                     item.unlink()
 
-    async def ensure_memory_files_exist(self, user_id: str) -> None:
-        """确保用户记忆文件存在，不覆盖已有内容。"""
-        self._ensure_user_scaffold(user_id)
-        self._write_initial_memory_files(user_id=user_id, overwrite=False)
+    async def ensure_memory_files_exist(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> None:
+        """确保数字员工记忆文件存在，不覆盖已有内容。"""
+        self._ensure_user_scaffold(user_id, employee_id)
+        self._write_initial_memory_files(user_id=user_id, employee_id=employee_id, overwrite=False)
 
-    async def reset_memory_to_initial_content(self, user_id: str) -> list[str]:
-        """重置记忆目录并重新写入初始化文件。"""
-        self._ensure_user_scaffold(user_id)
-        self._clear_memory_files(user_id=user_id)
-        return self._write_initial_memory_files(user_id=user_id, overwrite=True)
+    async def reset_memory_to_initial_content(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[str]:
+        """重置指定员工记忆目录并重新写入初始化文件。"""
+        self._ensure_user_scaffold(user_id, employee_id)
+        self._clear_memory_files(user_id=user_id, employee_id=employee_id)
+        return self._write_initial_memory_files(user_id=user_id, employee_id=employee_id, overwrite=True)
 
     @staticmethod
     def _sort_memory_file_names(existing: list[str]) -> list[str]:
@@ -140,16 +146,16 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         ordered.extend(name for name in existing if name not in ordered)
         return ordered
 
-    def list_memory_file_names(self, user_id: str) -> list[str]:
-        """列出用户记忆文件名。"""
-        self._ensure_user_scaffold(user_id)
+    def list_memory_file_names(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[str]:
+        """列出指定数字员工记忆文件名。"""
+        self._ensure_user_scaffold(user_id, employee_id)
         existing: set[str] = set()
 
-        memory_file = user_employee_memory_file(user_id, EMPLOYEE_ONE)
+        memory_file = user_employee_memory_file(user_id, employee_id)
         if memory_file.exists() and memory_file.is_file():
             existing.add(COMPRESSED_MEMORY_FILE)
 
-        notebook_dir = user_employee_notebook_dir(user_id, EMPLOYEE_ONE)
+        notebook_dir = user_employee_notebook_dir(user_id, employee_id)
         if notebook_dir.exists():
             for file_path in notebook_dir.glob("*.md"):
                 if file_path.is_file():
@@ -161,11 +167,43 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         existing_sorted = sorted(set(existing_sorted), key=lambda x: x.lower())
         return self._sort_memory_file_names(existing_sorted)
 
-    async def read_memory_file(self, *, user_id: str, file_name: str) -> str:
+    def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
+        """列出员工目录树，用于前端目录展示。"""
+        self._ensure_user_scaffold(user_id, employee_id)
+        root = user_employee_member_dir(user_id, employee_id)
+
+        entries: list[dict[str, object]] = [
+            {"path": ".", "is_dir": True},
+        ]
+
+        for current in sorted(
+            root.rglob("*"),
+            key=lambda p: (len(p.relative_to(root).parts), str(p.relative_to(root)).lower()),
+        ):
+            relative = current.relative_to(root).as_posix()
+            entries.append(
+                {
+                    "path": relative,
+                    "is_dir": current.is_dir(),
+                }
+            )
+        return entries
+
+    def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:
+        """返回员工数据目录绝对路径。"""
+        self._ensure_user_scaffold(user_id, employee_id)
+        return str(user_employee_member_dir(user_id, employee_id).resolve())
+
+    @staticmethod
+    def memory_relative_path(file_name: str) -> str:
+        """返回记忆文件相对于员工目录的路径。"""
+        return resolve_memory_relative_path(file_name).as_posix()
+
+    async def read_memory_file(self, *, user_id: str, employee_id: str = EMPLOYEE_ONE, file_name: str) -> str:
         """读取指定记忆文件内容。"""
-        self._ensure_user_scaffold(user_id)
+        self._ensure_user_scaffold(user_id, employee_id)
         normalized_name = file_name.strip()
-        path = resolve_memory_path(user_id=user_id, file_name=normalized_name)
+        path = resolve_memory_path(user_id=user_id, employee_id=employee_id, file_name=normalized_name)
         if not path.exists():
             raise NotFoundError(f"记忆文件不存在：{normalized_name}")
         async with aiofiles.open(path, "r", encoding="utf-8") as f:
@@ -175,15 +213,16 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         self,
         *,
         user_id: str,
+        employee_id: str = EMPLOYEE_ONE,
         file_name: str,
         content: str,
         mode: str,
         allow_system_prompt: bool = False,
     ) -> str:
         """向指定记忆文件写入内容。"""
-        self._ensure_user_scaffold(user_id)
+        self._ensure_user_scaffold(user_id, employee_id)
         normalized_name = file_name.strip()
-        path = resolve_memory_path(user_id=user_id, file_name=normalized_name)
+        path = resolve_memory_path(user_id=user_id, employee_id=employee_id, file_name=normalized_name)
         if normalized_name == SYSTEM_PROMPT_FILE and not allow_system_prompt:
             raise ValidationError(f"{SYSTEM_PROMPT_FILE} 仅允许通过人工接口更新")
         if mode not in {"append", "overwrite"}:

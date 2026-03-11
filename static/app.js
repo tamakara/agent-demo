@@ -1,4 +1,4 @@
-const elements = {
+﻿const elements = {
   model: document.getElementById("model"),
   apiKey: document.getElementById("apiKey"),
   baseUrl: document.getElementById("baseUrl"),
@@ -20,23 +20,31 @@ const elements = {
   chatLog: document.getElementById("chatLog"),
   chatForm: document.getElementById("chatForm"),
   messageInput: document.getElementById("messageInput"),
-  sessionSelect: document.getElementById("sessionSelect"),
-  newSessionBtn: document.getElementById("newSessionBtn"),
-  reloadSessionBtn: document.getElementById("reloadSessionBtn"),
+
+  employeeSelect: document.getElementById("employeeSelect"),
+  newEmployeeBtn: document.getElementById("newEmployeeBtn"),
+  reloadEmployeeBtn: document.getElementById("reloadEmployeeBtn"),
+
   fileTabs: document.getElementById("fileTabs"),
   fileContent: document.getElementById("fileContent"),
   activeFileName: document.getElementById("activeFileName"),
   saveFileBtn: document.getElementById("saveFileBtn"),
   reloadFilesBtn: document.getElementById("reloadFilesBtn"),
   resetMemoryBtn: document.getElementById("resetMemoryBtn"),
+  directoryTree: document.getElementById("directoryTree"),
+  dataDirPath: document.getElementById("dataDirPath"),
+
   chatItemTemplate: document.getElementById("chatItemTemplate"),
 };
 
 const state = {
   userId: "",
-  sessions: [],
+  employees: [],
+  activeEmployeeId: "",
   activeSessionId: "",
   files: [],
+  dataTree: [],
+  dataDir: "",
   activeFile: null,
   isChatRunning: false,
 };
@@ -129,9 +137,19 @@ function requireUserId() {
   return state.userId;
 }
 
-function buildUserQuery(extra = {}) {
+function requireEmployeeId() {
+  if (!state.activeEmployeeId) {
+    throw new Error("当前没有可用数字员工，请先创建员工。");
+  }
+  return state.activeEmployeeId;
+}
+
+function buildUserQuery(extra = {}, includeEmployee = false) {
   const params = new URLSearchParams(extra);
   params.set("user_id", requireUserId());
+  if (includeEmployee) {
+    params.set("employee_id", requireEmployeeId());
+  }
   return params;
 }
 
@@ -276,9 +294,9 @@ function clearChatLog() {
   elements.chatLog.innerHTML = "";
 }
 
-function ensureSessionSelected() {
-  if (!state.activeSessionId) {
-    reportError("当前没有可用 session，请先创建 session。");
+function ensureEmployeeSelected() {
+  if (!state.activeEmployeeId) {
+    reportError("当前没有可用数字员工，请先创建员工。");
     return false;
   }
   return true;
@@ -292,6 +310,11 @@ function syncActiveFileSelection() {
   if (!state.activeFile || !state.files.some((f) => f.file_name === state.activeFile)) {
     state.activeFile = state.files[0].file_name;
   }
+}
+
+function syncActiveEmployeeSession() {
+  const current = state.employees.find((employee) => employee.employee_id === state.activeEmployeeId);
+  state.activeSessionId = current?.session_id || "";
 }
 
 function tryParseJSON(raw) {
@@ -340,48 +363,50 @@ function renderHistoryMessage(message) {
   appendChatItem("meta", `${role || "unknown"}: ${content}`);
 }
 
-function formatSessionLabel(session) {
-  const updatedAt = (session.updated_at || "").replace("T", " ").slice(0, 19);
-  const messageCount = Number(session.message_count || 0);
-  return `${session.session_id} · ${messageCount}条消息 · ${updatedAt || "未知时间"}`;
+function formatEmployeeLabel(employee) {
+  const updatedAt = (employee.updated_at || "").replace("T", " ").slice(0, 19);
+  const messageCount = Number(employee.message_count || 0);
+  return `员工 #${employee.employee_id} · ${messageCount}条消息 · ${updatedAt || "未知时间"}`;
 }
 
-function renderSessionSelect() {
-  elements.sessionSelect.innerHTML = "";
-  for (const session of state.sessions) {
+function renderEmployeeSelect() {
+  elements.employeeSelect.innerHTML = "";
+  for (const employee of state.employees) {
     const option = document.createElement("option");
-    option.value = session.session_id;
-    option.textContent = formatSessionLabel(session);
-    if (session.session_id === state.activeSessionId) {
+    option.value = employee.employee_id;
+    option.textContent = formatEmployeeLabel(employee);
+    if (employee.employee_id === state.activeEmployeeId) {
       option.selected = true;
     }
-    elements.sessionSelect.appendChild(option);
+    elements.employeeSelect.appendChild(option);
   }
 }
 
-async function loadSessions() {
-  const data = await apiGet("/sessions", { user_id: requireUserId() });
-  state.sessions = data.sessions || [];
+async function loadEmployees() {
+  const data = await apiGet("/employees", { user_id: requireUserId() });
+  state.employees = data.employees || [];
 }
 
-async function createSession() {
-  const data = await apiPost("/sessions", { user_id: requireUserId() });
-  return data.session;
+async function createEmployee() {
+  const data = await apiPost("/employees", { user_id: requireUserId() });
+  return data.employee;
 }
 
-async function loadSessionHistory(options = {}) {
+async function loadEmployeeHistory(options = {}) {
   const announce = options.announce !== false;
 
-  if (!state.activeSessionId) {
+  if (!state.activeEmployeeId) {
     clearChatLog();
     return;
   }
 
-  const data = await apiGet("/session-messages", {
+  const data = await apiGet("/employee-messages", {
     user_id: requireUserId(),
-    session_id: state.activeSessionId,
+    employee_id: state.activeEmployeeId,
     limit: "2000",
   });
+
+  state.activeSessionId = data.session_id || state.activeSessionId;
 
   const messages = data.messages || [];
   clearChatLog();
@@ -390,7 +415,7 @@ async function loadSessionHistory(options = {}) {
   }
 
   if (announce) {
-    appendChatItem("meta", `已切换到 session：${state.activeSessionId}（加载 ${messages.length} 条历史）`);
+    appendChatItem("meta", `已切换到员工 #${state.activeEmployeeId}（加载 ${messages.length} 条历史）`);
   }
 }
 
@@ -424,36 +449,52 @@ async function saveConfig() {
   return true;
 }
 
-async function ensureActiveSession() {
-  await loadSessions();
-  if (state.sessions.length === 0) {
-    await createSession();
-    await loadSessions();
+async function ensureActiveEmployee() {
+  await loadEmployees();
+  if (state.employees.length === 0) {
+    await createEmployee();
+    await loadEmployees();
   }
 
-  if (!state.activeSessionId || !state.sessions.some((s) => s.session_id === state.activeSessionId)) {
-    state.activeSessionId = state.sessions[0]?.session_id || "";
+  if (!state.activeEmployeeId || !state.employees.some((e) => e.employee_id === state.activeEmployeeId)) {
+    state.activeEmployeeId = state.employees[0]?.employee_id || "";
   }
 
-  renderSessionSelect();
+  syncActiveEmployeeSession();
+  renderEmployeeSelect();
 }
 
-async function refreshSessionsAndRender() {
-  await loadSessions();
-  renderSessionSelect();
+async function refreshEmployeesAndRender() {
+  await loadEmployees();
+  if (!state.activeEmployeeId || !state.employees.some((e) => e.employee_id === state.activeEmployeeId)) {
+    state.activeEmployeeId = state.employees[0]?.employee_id || "";
+  }
+  syncActiveEmployeeSession();
+  renderEmployeeSelect();
+}
+
+function resetMemoryView() {
+  state.files = [];
+  state.dataTree = [];
+  state.dataDir = "";
+  state.activeFile = null;
+  updateEditorByActiveFile();
+  renderFileTabs();
+  renderDirectoryTree();
+  updateDataDirPath();
 }
 
 async function switchUserContext(options = {}) {
   const announce = options.announce !== false;
   promptForUserId();
+  state.activeEmployeeId = "";
   state.activeSessionId = "";
-  state.files = [];
-  state.activeFile = null;
+  resetMemoryView();
   clearChatLog();
 
-  await ensureActiveSession();
+  await ensureActiveEmployee();
   await loadGlobalLLMConfig();
-  await loadSessionHistory({ announce: false });
+  await loadEmployeeHistory({ announce: false });
   await loadMemoryFiles();
   await refreshStatus();
 
@@ -462,12 +503,14 @@ async function switchUserContext(options = {}) {
   }
 }
 
-async function handleCreateSession() {
-  const newSession = await createSession();
-  await loadSessions();
-  state.activeSessionId = newSession.session_id;
-  renderSessionSelect();
-  await loadSessionHistory();
+async function handleCreateEmployee() {
+  const newEmployee = await createEmployee();
+  await loadEmployees();
+  state.activeEmployeeId = newEmployee.employee_id;
+  syncActiveEmployeeSession();
+  renderEmployeeSelect();
+  await loadEmployeeHistory();
+  await loadMemoryFiles();
   await refreshStatus();
 }
 
@@ -513,7 +556,7 @@ async function sendChat(message) {
     reportMeta("已有请求在执行，请稍候。");
     return;
   }
-  if (!ensureSessionSelected()) {
+  if (!ensureEmployeeSelected()) {
     return;
   }
 
@@ -523,8 +566,8 @@ async function sendChat(message) {
   const config = getLLMConfigFromForm();
   const payload = {
     user_id: requireUserId(),
+    employee_id: state.activeEmployeeId,
     message,
-    session_id: state.activeSessionId,
     max_tool_rounds: config.max_tool_rounds,
   };
 
@@ -565,7 +608,7 @@ async function sendChat(message) {
   } finally {
     state.isChatRunning = false;
     await refreshStatus();
-    await refreshSessionsAndRender();
+    await refreshEmployeesAndRender();
   }
 }
 
@@ -596,6 +639,7 @@ function updateTokenBoard(status) {
 
   elements.tokenSummary.innerHTML =
     `user id：<b>${status.user_id || state.userId || "-"}</b><br>` +
+    `employee id：<b>${status.employee_id || state.activeEmployeeId || "-"}</b><br>` +
     `session id：<b>${status.session_id || state.activeSessionId || "-"}</b><br>` +
     `total：<b>${total}</b> / ${totalLimit} token（刷盘阈值：${flushTrigger}）<br>` +
     `常驻区：${resident} | 对话区：${dialogue} | 缓冲区：${buffer}<br>` +
@@ -604,14 +648,14 @@ function updateTokenBoard(status) {
 }
 
 async function refreshStatus() {
-  if (!state.activeSessionId) {
+  if (!state.activeEmployeeId) {
     return;
   }
   const config = getLLMConfigFromForm();
   try {
     const status = await apiGet("/memory/status", {
       user_id: requireUserId(),
-      session_id: state.activeSessionId,
+      employee_id: state.activeEmployeeId,
       model: config.model || DEFAULT_LLM_MODEL,
     });
     updateTokenBoard(status);
@@ -634,7 +678,7 @@ function updateEditorByActiveFile() {
     return;
   }
 
-  elements.activeFileName.textContent = current.file_name;
+  elements.activeFileName.textContent = `${current.file_name} (${current.relative_path || current.file_name})`;
   elements.fileContent.value = current.content || "";
 }
 
@@ -645,6 +689,7 @@ function renderFileTabs() {
     btn.type = "button";
     btn.className = "file-tab";
     btn.textContent = file.file_name;
+    btn.title = file.relative_path || file.file_name;
     if (state.activeFile === file.file_name) {
       btn.classList.add("active");
     }
@@ -652,32 +697,115 @@ function renderFileTabs() {
       state.activeFile = file.file_name;
       updateEditorByActiveFile();
       renderFileTabs();
+      renderDirectoryTree();
     });
     elements.fileTabs.appendChild(btn);
   }
 }
 
+function updateDataDirPath() {
+  elements.dataDirPath.textContent = state.dataDir || "-";
+}
+
+function renderDirectoryTree() {
+  elements.directoryTree.innerHTML = "";
+
+  const tree = Array.isArray(state.dataTree) ? state.dataTree : [];
+  if (tree.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "tree-item dir";
+    empty.textContent = "[DIR] .";
+    elements.directoryTree.appendChild(empty);
+    return;
+  }
+
+  for (const entry of tree) {
+    const relativePath = String(entry?.path || "");
+    if (!relativePath) {
+      continue;
+    }
+    const isDir = Boolean(entry?.is_dir);
+    const depth = relativePath === "." ? 0 : Math.max(0, relativePath.split("/").length - 1);
+    const displayName = relativePath === "." ? "." : (relativePath.split("/").pop() || relativePath);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `tree-item ${isDir ? "dir" : "file"}`;
+    button.style.paddingLeft = `${8 + depth * 14}px`;
+    button.title = relativePath;
+    button.textContent = `${isDir ? "[DIR]" : "[FILE]"} ${displayName}`;
+
+    if (isDir) {
+      button.disabled = true;
+      elements.directoryTree.appendChild(button);
+      continue;
+    }
+
+    const editable = state.files.find((file) => file.relative_path === relativePath);
+    if (!editable) {
+      button.disabled = true;
+      elements.directoryTree.appendChild(button);
+      continue;
+    }
+
+    button.classList.add("selectable");
+    if (state.activeFile === editable.file_name) {
+      button.classList.add("active");
+    }
+    button.addEventListener("click", () => {
+      state.activeFile = editable.file_name;
+      updateEditorByActiveFile();
+      renderFileTabs();
+      renderDirectoryTree();
+    });
+    elements.directoryTree.appendChild(button);
+  }
+}
+
 async function loadMemoryFiles() {
-  const data = await apiGet("/memory/files", { user_id: requireUserId() });
+  if (!ensureEmployeeSelected()) {
+    resetMemoryView();
+    return;
+  }
+
+  const data = await apiGet("/memory/files", {
+    user_id: requireUserId(),
+    employee_id: state.activeEmployeeId,
+  });
+
+  state.activeSessionId = data.session_id || state.activeSessionId;
   state.files = data.files || [];
+  state.dataTree = data.tree || [];
+  state.dataDir = data.data_dir || "";
+
   syncActiveFileSelection();
   updateEditorByActiveFile();
   renderFileTabs();
+  renderDirectoryTree();
+  updateDataDirPath();
 }
 
 async function resetMemoryFiles() {
-  const confirmed = window.confirm("确认重置记忆文件吗？这会清空当前 employee 目录下的记忆模板文件并覆盖为初始内容。");
+  if (!ensureEmployeeSelected()) {
+    return;
+  }
+
+  const confirmed = window.confirm(`确认重置员工 #${state.activeEmployeeId} 的记忆文件吗？这会清空该员工目录下的记忆模板文件并覆盖为初始内容。`);
   if (!confirmed) {
     return;
   }
 
-  const data = await apiPost(`/memory/reset?${buildUserQuery().toString()}`);
+  const data = await apiPost(`/memory/reset?${buildUserQuery({}, true).toString()}`);
+  state.activeSessionId = data.session_id || state.activeSessionId;
   state.files = data.files || [];
+  state.dataTree = data.tree || [];
   syncActiveFileSelection();
   updateEditorByActiveFile();
   renderFileTabs();
+  renderDirectoryTree();
+
   const restoredCount = Array.isArray(data.restored_files) ? data.restored_files.length : 0;
-  reportMeta(`记忆文件已重置，共恢复 ${restoredCount} 个模板文件。`);
+  reportMeta(`员工 #${state.activeEmployeeId} 记忆文件已重置，共恢复 ${restoredCount} 个模板文件。`);
   await refreshStatus();
 }
 
@@ -689,7 +817,7 @@ async function saveActiveFile() {
 
   const content = elements.fileContent.value;
   const encoded = encodeURIComponent(state.activeFile);
-  const data = await apiPut(`/memory/files/${encoded}?${buildUserQuery().toString()}`, {
+  const data = await apiPut(`/memory/files/${encoded}?${buildUserQuery({}, true).toString()}`, {
     content,
     mode: "overwrite",
   });
@@ -699,20 +827,20 @@ async function saveActiveFile() {
 }
 
 async function forceFlush() {
-  if (!ensureSessionSelected()) {
+  if (!ensureEmployeeSelected()) {
     return;
   }
   const config = getLLMConfigFromForm();
 
   const data = await apiPost("/memory/flush", {
     user_id: requireUserId(),
-    session_id: state.activeSessionId,
+    employee_id: state.activeEmployeeId,
     max_tool_rounds: config.max_tool_rounds,
   });
 
   appendChatItem("meta", data);
   await refreshStatus();
-  await refreshSessionsAndRender();
+  await refreshEmployeesAndRender();
   elements.settingsModal.close();
 }
 
@@ -774,30 +902,33 @@ function bindEvents() {
     await sendChat(text);
   });
 
-  elements.sessionSelect.addEventListener("change", async () => {
-    state.activeSessionId = elements.sessionSelect.value;
+  elements.employeeSelect.addEventListener("change", async () => {
+    state.activeEmployeeId = elements.employeeSelect.value;
+    syncActiveEmployeeSession();
     try {
-      await loadSessionHistory();
+      await loadEmployeeHistory();
+      await loadMemoryFiles();
       await refreshStatus();
     } catch (err) {
       reportError(err);
     }
   });
 
-  elements.newSessionBtn.addEventListener("click", async () => {
+  elements.newEmployeeBtn.addEventListener("click", async () => {
     try {
-      await handleCreateSession();
+      await handleCreateEmployee();
     } catch (err) {
       reportError(err);
     }
   });
 
-  elements.reloadSessionBtn.addEventListener("click", async () => {
+  elements.reloadEmployeeBtn.addEventListener("click", async () => {
     try {
-      await ensureActiveSession();
-      await loadSessionHistory({ announce: false });
+      await ensureActiveEmployee();
+      await loadEmployeeHistory({ announce: false });
+      await loadMemoryFiles();
       await refreshStatus();
-      reportMeta("session 列表已刷新。");
+      reportMeta("数字员工列表已刷新。");
     } catch (err) {
       reportError(err);
     }
@@ -842,9 +973,9 @@ async function bootstrap() {
   promptForUserId();
 
   try {
-    await ensureActiveSession();
+    await ensureActiveEmployee();
     await loadGlobalLLMConfig();
-    await loadSessionHistory({ announce: false });
+    await loadEmployeeHistory({ announce: false });
     await loadMemoryFiles();
     await refreshStatus();
     setInterval(refreshStatus, 6000);

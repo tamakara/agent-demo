@@ -92,32 +92,45 @@ class UserSettingsRepositoryPort(Protocol):
 class MemoryFileRepositoryPort(Protocol):
     """记忆文件仓储端口协议。"""
 
-    async def ensure_memory_files_exist(self, user_id: str) -> None:
-        """确保用户的记忆文件目录与默认文件存在。"""
+    async def ensure_memory_files_exist(self, user_id: str, employee_id: str) -> None:
+        """确保指定数字员工的记忆目录与默认文件存在。"""
         ...
 
-    async def reset_memory_to_initial_content(self, user_id: str) -> list[str]:
-        """将记忆文件重置为初始内容并返回恢复文件名列表。"""
+    async def reset_memory_to_initial_content(self, user_id: str, employee_id: str) -> list[str]:
+        """将指定数字员工的记忆文件重置为初始内容并返回恢复文件名列表。"""
         ...
 
-    def list_memory_file_names(self, user_id: str) -> list[str]:
-        """列出用户记忆文件名。"""
+    def list_memory_file_names(self, user_id: str, employee_id: str) -> list[str]:
+        """列出指定数字员工记忆文件名。"""
         ...
 
-    async def read_memory_file(self, *, user_id: str, file_name: str) -> str:
-        """读取指定记忆文件内容。"""
+    def list_employee_data_paths(self, user_id: str, employee_id: str) -> list[dict[str, Any]]:
+        """列出员工目录树（相对路径 + 是否目录）。"""
+        ...
+
+    def employee_data_root(self, user_id: str, employee_id: str) -> str:
+        """返回员工数据目录绝对路径字符串。"""
+        ...
+
+    def memory_relative_path(self, file_name: str) -> str:
+        """返回记忆文件相对员工目录路径。"""
+        ...
+
+    async def read_memory_file(self, *, user_id: str, employee_id: str, file_name: str) -> str:
+        """读取指定数字员工记忆文件内容。"""
         ...
 
     async def write_memory_file(
         self,
         *,
         user_id: str,
+        employee_id: str,
         file_name: str,
         content: str,
         mode: str,
         allow_system_prompt: bool = False,
     ) -> str:
-        """写入指定记忆文件并返回最新内容。"""
+        """写入指定数字员工记忆文件并返回最新内容。"""
         ...
 
 
@@ -127,6 +140,7 @@ class LLMGatewayPort(Protocol):
     async def run_with_tools(
         self,
         user_id: str,
+        employee_id: str,
         messages: list[dict[str, Any]],
         llm_config: LLMConfig,
         max_tool_rounds: int,

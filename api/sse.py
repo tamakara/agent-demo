@@ -13,6 +13,7 @@ from common.time_utils import utc_now_iso
 class SSEEnvelopeBuilder:
     """SSE 事件包装器，负责维护事件序号与统一信封结构。"""
     request_id: str
+    employee_id: str
     session_id: str
     seq: int = field(default=0)
 
@@ -24,6 +25,7 @@ class SSEEnvelopeBuilder:
             "seq": self.seq,
             "request_id": self.request_id,
             "ts": utc_now_iso(),
+            "employee_id": self.employee_id,
             "session_id": self.session_id,
             "payload": payload,
         }

@@ -1,4 +1,4 @@
-# HTTP API 参考
+﻿# HTTP API 参考
 
 ## 本文范围
 
@@ -20,6 +20,8 @@ SSE 事件协议请看 `sse_protocol.md`。
 4. `PUT /memory/files/{file_name}` 与 `POST /memory/reset` 使用 `query user_id`
 
 `user_id` 校验：`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
+
+`employee_id` 校验：正整数字符串（`1`、`2`、`3` ...）
 
 ## 2. 统一响应
 
@@ -49,9 +51,9 @@ SSE 事件协议请看 `sse_protocol.md`。
 
 ## 3. 接口列表
 
-### 3.1 会话
+### 3.1 数字员工
 
-#### `GET /sessions`
+#### `GET /employees`
 
 Query:
 
@@ -59,35 +61,49 @@ Query:
 
 Data:
 
-- `sessions[]`
+- `employees[]`
 
-#### `POST /sessions`
+`employees[]` 字段：
+
+- `user_id`
+- `employee_id`
+- `session_id`（格式：`employee-{employee_id}`）
+- `is_flushing`
+- `created_at`
+- `updated_at`
+- `message_count`
+
+#### `POST /employees`
 
 Body:
 
 ```json
 {
-  "user_id": "alice",
-  "session_id": ""
+  "user_id": "alice"
 }
 ```
+
+说明：
+
+- 自动创建下一个员工编号（例如已有 `1` 则创建 `2`）
 
 Data:
 
 - `created`
-- `session`
+- `employee`
 
-#### `GET /session-messages`
+#### `GET /employee-messages`
 
 Query:
 
 - `user_id` 必填
-- `session_id` 必填
+- `employee_id` 可选（默认 `1`）
 - `limit` 可选（`1..5000`）
 
 Data:
 
 - `user_id`
+- `employee_id`
 - `session_id`
 - `messages[]`
 
@@ -100,7 +116,7 @@ Body:
 ```json
 {
   "user_id": "alice",
-  "session_id": "default",
+  "employee_id": "1",
   "message": "你好",
   "max_tool_rounds": 6
 }
@@ -149,17 +165,22 @@ Body:
 Query:
 
 - `user_id` 必填
+- `employee_id` 可选（默认 `1`）
 
-说明：
+Data:
 
-- 返回 `employee/1` 下可编辑记忆文件（逻辑文件名不带路径）。
-- 默认包含：`memory.md`、`人格设定.md`、`日程表.md`、`工作手册.md`、`素材库笔记.md`。
+- `employee_id`
+- `session_id`
+- `data_dir`：员工数据目录绝对路径
+- `tree[]`：目录树（`path` + `is_dir`）
+- `files[]`：可编辑记忆文件（`file_name`、`relative_path`、`content`）
 
 #### `PUT /memory/files/{file_name}`
 
 Query:
 
 - `user_id` 必填
+- `employee_id` 可选（默认 `1`）
 
 Path:
 
@@ -179,18 +200,19 @@ Body:
 Query:
 
 - `user_id` 必填
+- `employee_id` 可选（默认 `1`）
 
 说明：
 
-- 仅重置 `employee/1` 下的记忆模板 Markdown 文件。
-- `workspace/`、`skills/`、`brand_library/`、`skill_library/` 不会被清空。
+- 仅重置 `employee/<employee_id>` 下的记忆模板 Markdown 文件
+- `workspace/`、`skills/`、`brand_library/`、`skill_library/` 不会被清空
 
 #### `GET /memory/status`
 
 Query:
 
 - `user_id` 必填
-- `session_id` 可选（默认 `default`）
+- `employee_id` 可选（默认 `1`）
 - `model` 可选
 
 #### `POST /memory/flush`
@@ -200,7 +222,7 @@ Body:
 ```json
 {
   "user_id": "alice",
-  "session_id": "default",
+  "employee_id": "1",
   "max_tool_rounds": 6
 }
 ```
@@ -214,4 +236,4 @@ Body:
 
 ## 5. 兼容说明
 
-旧路径 `/api/*` 与 `/v1/*` 已废弃。
+旧路径 `/sessions` 与 `/session-messages` 已废弃。

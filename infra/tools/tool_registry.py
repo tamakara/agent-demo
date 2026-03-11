@@ -11,7 +11,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_memory_file",
-            "description": "读取当前用户隔离目录中的 Markdown 记忆文件。",
+            "description": "读取当前数字员工隔离目录中的 Markdown 记忆文件。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -29,7 +29,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "write_memory_file",
-            "description": "向当前用户隔离目录中的记忆文件写入文本，支持追加或覆盖。",
+            "description": "向当前数字员工隔离目录中的记忆文件写入文本，支持追加或覆盖。",
             "parameters": {
                 "type": "object",
                 "properties": {

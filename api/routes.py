@@ -1,4 +1,4 @@
-"""HTTP 路由定义与请求处理编排。"""
+﻿"""HTTP 路由定义与请求处理编排。"""
 
 from __future__ import annotations
 
@@ -11,27 +11,19 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from domain.models import LLMConfig
 from api.dependencies import AppContainer
 from api.requests import (
     ChatStreamRequest,
+    EmployeeCreateRequest,
     FlushRequest,
     MemoryFileUpdateRequest,
-    SessionCreateRequest,
     SettingsUpdateRequest,
 )
 from api.sse import SSEEnvelopeBuilder
 from common.errors import AppError, NotFoundError, ValidationError
-from common.ids import normalize_user_id
+from common.ids import normalize_employee_id, normalize_user_id
 from common.response import error_response, success_response
-
-
-def _normalize_session_id(session_id: str | None, *, default: str = "default") -> str:
-    """标准化会话 ID，空值时回退到默认会话。"""
-    normalized = str(session_id or "").strip()
-    if not normalized:
-        return default
-    return normalized
+from domain.models import LLMConfig
 
 
 def _new_request_id() -> str:
@@ -57,48 +49,70 @@ def _memory_status_to_dict(status: Any) -> dict[str, Any]:
     return asdict(status)
 
 
+async def _resolve_employee(
+    container: AppContainer,
+    *,
+    user_id: str,
+    employee_id: str | None,
+    auto_create_default: bool = True,
+) -> tuple[str, str]:
+    """解析并校验员工身份，返回 ``(employee_id, session_id)``。"""
+    normalized_employee_id = normalize_employee_id(employee_id, default="1")
+    employee = await container.employee_service.get_employee(
+        user_id,
+        normalized_employee_id,
+        auto_create_default=auto_create_default,
+    )
+    return employee.employee_id, employee.session_id
+
+
 def create_router(container: AppContainer) -> APIRouter:
     """基于容器依赖创建 API 路由。"""
     router = APIRouter()
 
-    @router.get("/sessions")
-    async def list_sessions(user_id: str = Query(..., min_length=1)) -> JSONResponse:
-        """查询用户下的会话列表。"""
+    @router.get("/employees")
+    async def list_employees(user_id: str = Query(..., min_length=1)) -> JSONResponse:
+        """查询用户下的数字员工列表。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            sessions = await container.session_service.list_sessions(normalized_user_id, limit=300)
-            data = {"sessions": [asdict(item) for item in sessions]}
+            employees = await container.employee_service.list_employees(normalized_user_id, limit=300)
+            data = {"employees": [asdict(item) for item in employees]}
             return JSONResponse(success_response(request_id=request_id, data=data))
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 
-    @router.post("/sessions")
-    async def create_session(request: SessionCreateRequest) -> JSONResponse:
-        """创建新会话。"""
+    @router.post("/employees")
+    async def create_employee(request: EmployeeCreateRequest) -> JSONResponse:
+        """创建新数字员工。"""
         request_id = _new_request_id()
         try:
             user_id = normalize_user_id(request.user_id)
-            await container.memory_file_service.ensure_user_files(user_id)
-            entry = await container.session_service.create_session(user_id, request.session_id)
-            return JSONResponse(success_response(request_id=request_id, data={"created": True, "session": asdict(entry)}))
+            entry = await container.employee_service.create_employee(user_id)
+            await container.memory_file_service.ensure_employee_files(user_id, entry.employee_id)
+            return JSONResponse(success_response(request_id=request_id, data={"created": True, "employee": asdict(entry)}))
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 
-    @router.get("/session-messages")
-    async def get_session_messages(
+    @router.get("/employee-messages")
+    async def get_employee_messages(
         user_id: str = Query(..., min_length=1),
-        session_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
         limit: int = Query(default=500, ge=1, le=5000),
     ) -> JSONResponse:
-        """查询指定会话的历史消息。"""
+        """查询指定数字员工的历史消息。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            normalized_session_id = _normalize_session_id(session_id)
-            messages = await container.session_service.list_session_messages(
+            normalized_employee_id = normalize_employee_id(employee_id)
+            employee = await container.employee_service.get_employee(
                 normalized_user_id,
-                normalized_session_id,
+                normalized_employee_id,
+                auto_create_default=True,
+            )
+            messages = await container.employee_service.list_employee_messages(
+                normalized_user_id,
+                employee.employee_id,
                 limit=limit,
             )
             return JSONResponse(
@@ -106,7 +120,8 @@ def create_router(container: AppContainer) -> APIRouter:
                     request_id=request_id,
                     data={
                         "user_id": normalized_user_id,
-                        "session_id": normalized_session_id,
+                        "employee_id": employee.employee_id,
+                        "session_id": employee.session_id,
                         "messages": [asdict(item) for item in messages],
                     },
                 )
@@ -162,21 +177,27 @@ def create_router(container: AppContainer) -> APIRouter:
         """以 SSE 方式流式返回聊天结果与工具调用事件。"""
         request_id = _new_request_id()
         user_id = normalize_user_id(request.user_id)
-        session_id = _normalize_session_id(request.session_id)
+        employee_id, session_id = await _resolve_employee(
+            container,
+            user_id=user_id,
+            employee_id=request.employee_id,
+            auto_create_default=True,
+        )
 
-        # 对话前确保用户记忆文件可用，并读取当前用户模型配置。
-        await container.memory_file_service.ensure_user_files(user_id)
+        # 对话前确保员工记忆文件可用，并读取当前用户模型配置。
+        await container.memory_file_service.ensure_employee_files(user_id, employee_id)
         settings = await container.settings_service.get_settings(user_id)
         llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
         max_tool_rounds = request.max_tool_rounds or settings.max_tool_rounds
 
         async def event_stream() -> AsyncIterator[str]:
             """将用例产出的内部事件转发为 SSE 事件流。"""
-            builder = SSEEnvelopeBuilder(request_id=request_id, session_id=session_id)
+            builder = SSEEnvelopeBuilder(request_id=request_id, employee_id=employee_id, session_id=session_id)
             yield builder.frame(
                 "meta",
                 {
                     "user_id": user_id,
+                    "employee_id": employee_id,
                     "session_id": session_id,
                     "model": llm_config.model,
                     "max_tool_rounds": max_tool_rounds,
@@ -192,6 +213,7 @@ def create_router(container: AppContainer) -> APIRouter:
             process_task = asyncio.create_task(
                 container.chat_stream_use_case.execute(
                     user_id=user_id,
+                    employee_id=employee_id,
                     session_id=session_id,
                     message=request.message,
                     llm_config=llm_config,
@@ -253,6 +275,7 @@ def create_router(container: AppContainer) -> APIRouter:
                     background_tasks.add_task(
                         container.flush_use_case.flush,
                         user_id=user_id,
+                        employee_id=employee_id,
                         session_id=session_id,
                         llm_config=llm_config,
                         max_tool_rounds=max_tool_rounds,
@@ -279,22 +302,28 @@ def create_router(container: AppContainer) -> APIRouter:
     @router.get("/memory/status")
     async def memory_status(
         user_id: str = Query(..., min_length=1),
-        session_id: str = Query(default="default", min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
         model: str | None = Query(default=None),
     ) -> JSONResponse:
-        """获取会话当前记忆状态。"""
+        """获取数字员工当前记忆状态。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            normalized_session_id = _normalize_session_id(session_id)
-            await container.memory_file_service.ensure_user_files(normalized_user_id)
+            normalized_employee_id, session_id = await _resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
+            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
             if model:
                 model_name = str(model).strip() or "agent-advoo"
             else:
                 model_name = (await container.settings_service.get_settings(normalized_user_id)).model
             status = await container.memory_status_use_case.execute(
                 user_id=normalized_user_id,
-                session_id=normalized_session_id,
+                employee_id=normalized_employee_id,
+                session_id=session_id,
                 model=model_name,
             )
             return JSONResponse(success_response(request_id=request_id, data=_memory_status_to_dict(status)))
@@ -302,33 +331,63 @@ def create_router(container: AppContainer) -> APIRouter:
             raise _raise_http(exc, request_id) from exc
 
     @router.get("/memory/files")
-    async def memory_files(user_id: str = Query(..., min_length=1)) -> JSONResponse:
-        """列出用户记忆文件。"""
+    async def memory_files(
+        user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
+    ) -> JSONResponse:
+        """列出数字员工记忆文件与数据目录树。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            await container.memory_file_service.ensure_user_files(normalized_user_id)
-            files = await container.memory_file_service.list_files(normalized_user_id)
+            normalized_employee_id, session_id = await _resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
+            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
+            files = await container.memory_file_service.list_files(normalized_user_id, normalized_employee_id)
             return JSONResponse(
                 success_response(
                     request_id=request_id,
-                    data={"files": [asdict(item) for item in files]},
+                    data={
+                        "employee_id": normalized_employee_id,
+                        "session_id": session_id,
+                        "data_dir": container.memory_file_service.data_root(normalized_user_id, normalized_employee_id),
+                        "tree": container.memory_file_service.list_data_paths(normalized_user_id, normalized_employee_id),
+                        "files": [asdict(item) for item in files],
+                    },
                 )
             )
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 
     @router.post("/memory/reset")
-    async def reset_memory_files(user_id: str = Query(..., min_length=1)) -> JSONResponse:
-        """重置用户记忆文件为默认内容。"""
+    async def reset_memory_files(
+        user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
+    ) -> JSONResponse:
+        """重置数字员工记忆文件为默认内容。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            restored_files, files = await container.memory_file_service.reset_files(normalized_user_id)
+            normalized_employee_id, session_id = await _resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
+            restored_files, files = await container.memory_file_service.reset_files(
+                normalized_user_id,
+                normalized_employee_id,
+            )
             data = {
                 "ok": True,
+                "employee_id": normalized_employee_id,
+                "session_id": session_id,
                 "restored_files": restored_files,
                 "files": [asdict(item) for item in files],
+                "tree": container.memory_file_service.list_data_paths(normalized_user_id, normalized_employee_id),
             }
             return JSONResponse(success_response(request_id=request_id, data=data))
         except AppError as exc:
@@ -339,14 +398,22 @@ def create_router(container: AppContainer) -> APIRouter:
         file_name: str,
         body: MemoryFileUpdateRequest,
         user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
     ) -> JSONResponse:
         """更新单个记忆文件内容。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            await container.memory_file_service.ensure_user_files(normalized_user_id)
+            normalized_employee_id, session_id = await _resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
+            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
             latest = await container.memory_file_service.update_file(
                 user_id=normalized_user_id,
+                employee_id=normalized_employee_id,
                 file_name=file_name,
                 content=body.content,
                 mode=body.mode,
@@ -354,7 +421,13 @@ def create_router(container: AppContainer) -> APIRouter:
             return JSONResponse(
                 success_response(
                     request_id=request_id,
-                    data={"ok": True, "file_name": file_name, "content": latest},
+                    data={
+                        "ok": True,
+                        "employee_id": normalized_employee_id,
+                        "session_id": session_id,
+                        "file_name": file_name,
+                        "content": latest,
+                    },
                 )
             )
         except NotFoundError as exc:
@@ -366,12 +439,17 @@ def create_router(container: AppContainer) -> APIRouter:
 
     @router.post("/memory/flush")
     async def memory_flush(request: FlushRequest, background_tasks: BackgroundTasks) -> JSONResponse:
-        """手动触发会话记忆刷盘。"""
+        """手动触发数字员工记忆刷盘。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(request.user_id)
-            normalized_session_id = _normalize_session_id(request.session_id)
-            await container.memory_file_service.ensure_user_files(normalized_user_id)
+            normalized_employee_id, session_id = await _resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=request.employee_id,
+                auto_create_default=True,
+            )
+            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
 
             settings = await container.settings_service.get_settings(normalized_user_id)
             llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
@@ -379,19 +457,21 @@ def create_router(container: AppContainer) -> APIRouter:
 
             accepted = await container.flush_use_case.try_start_manual_flush(
                 user_id=normalized_user_id,
-                session_id=normalized_session_id,
+                session_id=session_id,
             )
             if accepted:
                 background_tasks.add_task(
                     container.flush_use_case.flush,
                     user_id=normalized_user_id,
-                    session_id=normalized_session_id,
+                    employee_id=normalized_employee_id,
+                    session_id=session_id,
                     llm_config=llm_config,
                     max_tool_rounds=max_tool_rounds,
                 )
             status = await container.memory_status_use_case.execute(
                 user_id=normalized_user_id,
-                session_id=normalized_session_id,
+                employee_id=normalized_employee_id,
+                session_id=session_id,
                 model=llm_config.model,
             )
             return JSONResponse(
@@ -400,7 +480,8 @@ def create_router(container: AppContainer) -> APIRouter:
                     data={
                         "accepted": accepted,
                         "user_id": normalized_user_id,
-                        "session_id": normalized_session_id,
+                        "employee_id": normalized_employee_id,
+                        "session_id": session_id,
                         "is_flushing": status.is_flushing,
                     },
                 )

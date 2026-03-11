@@ -9,13 +9,13 @@
 - `main.py`：创建 FastAPI 应用、生命周期与全局异常处理
 - `api/routes.py`：路由入口与协议转换
 - `api/sse.py`：SSE envelope 构建
-- `api/dto/requests.py`：请求模型与参数校验
+- `api/requests.py`：请求模型与参数校验
 - `api/dependencies.py`：依赖装配（容器）
 
 ## 2. app
 
 - `app/ports/repositories.py`：端口定义
-- `app/services/session_service.py`：会话相关业务
+- `app/services/employee_service.py`：数字员工相关业务
 - `app/services/settings_service.py`：配置相关业务
 - `app/services/memory_file_service.py`：记忆文件业务
 - `app/use_cases/chat_stream_use_case.py`：聊天用例
@@ -47,7 +47,7 @@
 
 - `common/errors.py`：统一错误类型
 - `common/response.py`：统一响应 envelope
-- `common/ids.py`：user_id 与 session_id 规则
+- `common/ids.py`：user_id / employee_id / session_id 映射规则
 - `common/time_utils.py`：时间工具
 
 ## 6. 扩展入口

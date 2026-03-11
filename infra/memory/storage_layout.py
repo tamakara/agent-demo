@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from common.ids import normalize_employee_id
 from common.errors import ValidationError
 
 
@@ -25,14 +26,14 @@ ASSET_PLACEHOLDER_FILE = "素材库笔记.md"
 PERSONA_FILE = "人格设定.md"
 COMPRESSED_MEMORY_FILE = "memory.md"
 
-# 已知文件名固定映射到 employee/1 指定位置；未知 .md 默认落到 employee/1/notebook/。
-MEMORY_FILE_LOCATIONS: dict[str, Path] = {
-    COMPRESSED_MEMORY_FILE: Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / COMPRESSED_MEMORY_FILE,
-    ASSET_PLACEHOLDER_FILE: Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / NOTEBOOK_SUBDIR / ASSET_PLACEHOLDER_FILE,
-    "日程表.md": Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / NOTEBOOK_SUBDIR / "日程表.md",
-    PERSONA_FILE: Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / NOTEBOOK_SUBDIR / PERSONA_FILE,
-    "工作手册.md": Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / NOTEBOOK_SUBDIR / "工作手册.md",
-    SYSTEM_PROMPT_FILE: Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / NOTEBOOK_SUBDIR / SYSTEM_PROMPT_FILE,
+# 已知文件名固定映射到 employee/{id} 指定位置；未知 .md 默认落到 notebook/。
+MEMORY_FILE_LOCATIONS_UNDER_EMPLOYEE: dict[str, Path] = {
+    COMPRESSED_MEMORY_FILE: Path(COMPRESSED_MEMORY_FILE),
+    ASSET_PLACEHOLDER_FILE: Path(NOTEBOOK_SUBDIR) / ASSET_PLACEHOLDER_FILE,
+    "日程表.md": Path(NOTEBOOK_SUBDIR) / "日程表.md",
+    PERSONA_FILE: Path(NOTEBOOK_SUBDIR) / PERSONA_FILE,
+    "工作手册.md": Path(NOTEBOOK_SUBDIR) / "工作手册.md",
+    SYSTEM_PROMPT_FILE: Path(NOTEBOOK_SUBDIR) / SYSTEM_PROMPT_FILE,
 }
 
 
@@ -58,14 +59,6 @@ def user_root_dir(user_id: str) -> Path:
     return target
 
 
-def _normalize_employee_id(employee_id: str) -> str:
-    """校验员工编号（当前仅支持 1 号员工）。"""
-    normalized = str(employee_id).strip()
-    if normalized != EMPLOYEE_ONE:
-        raise ValidationError("employee_id 仅支持 1")
-    return normalized
-
-
 def user_employee_dir(user_id: str) -> Path:
     """返回用户 employee 根目录。"""
     return user_root_dir(user_id) / EMPLOYEE_SUBDIR
@@ -73,7 +66,7 @@ def user_employee_dir(user_id: str) -> Path:
 
 def user_employee_member_dir(user_id: str, employee_id: str) -> Path:
     """返回指定员工目录。"""
-    return user_employee_dir(user_id) / _normalize_employee_id(employee_id)
+    return user_employee_dir(user_id) / normalize_employee_id(employee_id)
 
 
 def user_employee_notebook_dir(user_id: str, employee_id: str) -> Path:
@@ -120,16 +113,21 @@ def validate_file_name(file_name: str) -> str:
     return name
 
 
-def resolve_memory_path(*, user_id: str, file_name: str) -> Path:
-    """解析用户记忆文件绝对路径，并防止目录穿越。"""
+def resolve_memory_relative_path(file_name: str) -> Path:
+    """解析记忆文件在员工目录中的相对路径。"""
     valid_name = validate_file_name(file_name)
-    user_dir = user_root_dir(user_id)
-    relative = MEMORY_FILE_LOCATIONS.get(
+    return MEMORY_FILE_LOCATIONS_UNDER_EMPLOYEE.get(
         valid_name,
-        Path(EMPLOYEE_SUBDIR) / EMPLOYEE_ONE / NOTEBOOK_SUBDIR / valid_name,
+        Path(NOTEBOOK_SUBDIR) / valid_name,
     )
-    base = user_dir.resolve()
-    target = (user_dir / relative).resolve()
+
+
+def resolve_memory_path(*, user_id: str, employee_id: str, file_name: str) -> Path:
+    """解析用户记忆文件绝对路径，并防止目录穿越。"""
+    employee_dir = user_employee_member_dir(user_id, employee_id).resolve()
+    relative = resolve_memory_relative_path(file_name)
+    target = (employee_dir / relative).resolve()
+    base = employee_dir
     if base not in target.parents and target != base:
         raise ValidationError("记忆文件路径非法")
     return target

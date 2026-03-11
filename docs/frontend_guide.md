@@ -1,4 +1,4 @@
-# 前端接入指南
+﻿# 前端接入指南
 
 ## 本文范围
 
@@ -26,11 +26,12 @@
 2. 优先处理 `error`
 3. 成功返回 `data`
 
-## 2. user_id 传递规则
+## 2. user_id / employee_id 传递规则
 
 - 查询接口：query `user_id`
+- 员工相关查询同时传 `employee_id`
 - 写接口：body `user_id`
-- 特例：`PUT /memory/files/{file_name}` 与 `POST /memory/reset` 继续 query `user_id`
+- 特例：`PUT /memory/files/{file_name}` 与 `POST /memory/reset` 继续 query 传 `user_id`、`employee_id`
 
 ## 3. SSE 解析建议
 
@@ -52,18 +53,21 @@
 最小状态：
 
 - `userId`
-- `sessions`
+- `employees`
+- `activeEmployeeId`
 - `activeSessionId`
 - `files`
+- `dataTree`
 - `activeFile`
 - `isChatRunning`
 
 ## 5. 交互建议
 
 1. 页面加载先要求输入 `user_id`
-2. 用户切换时重置 session、文件和聊天视图
-3. 聊天发送时禁用重复提交
-4. 流结束（`done`）后统一刷新 session 列表与 memory 状态
+2. 用户切换时重置员工、文件和聊天视图
+3. 首次进入用户上下文自动保障 1 号员工可用
+4. 聊天发送时禁用重复提交
+5. 流结束（`done`）后统一刷新员工列表与 memory 状态
 
 ## 6. 错误展示建议
 
@@ -73,7 +77,7 @@
 
 ## 7. 联调检查清单
 
-1. 前端已不再请求 `/api/*` 与 `/v1/*`
+1. 前端不再请求 `/sessions` 与 `/session-messages`
 2. 所有非流式接口都经过 envelope 解包
 3. SSE 处理不依赖 `eventName`，仅依赖 `type`
-4. 用户切换后数据视图正确隔离
+4. 用户切换与员工切换后数据视图正确隔离

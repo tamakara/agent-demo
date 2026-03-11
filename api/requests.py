@@ -1,4 +1,4 @@
-"""API 请求体 DTO 与字段校验规则。"""
+﻿"""API 请求体 DTO 与字段校验规则。"""
 
 from __future__ import annotations
 
@@ -30,10 +30,10 @@ def strip_optional_text(value: Any) -> str | None:
     return text or None
 
 
-class SessionCreateRequest(BaseModel):
-    """创建会话请求体。"""
+class EmployeeCreateRequest(BaseModel):
+    """创建数字员工请求体。"""
+
     user_id: str = Field(..., min_length=1)
-    session_id: str | None = None
 
     @field_validator("user_id", mode="before")
     @classmethod
@@ -41,21 +41,16 @@ class SessionCreateRequest(BaseModel):
         """规范化 ``user_id``。"""
         return strip_required_text(value)
 
-    @field_validator("session_id", mode="before")
-    @classmethod
-    def normalize_session_id(cls, value: Any) -> str | None:
-        """规范化 ``session_id``。"""
-        return strip_optional_text(value)
-
 
 class ChatStreamRequest(BaseModel):
     """聊天流请求体。"""
+
     user_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1)
-    session_id: str = Field(default="default", min_length=1)
+    employee_id: str = Field(default="1", min_length=1)
     max_tool_rounds: int | None = Field(default=None, ge=1, le=20)
 
-    @field_validator("user_id", "message", "session_id", mode="before")
+    @field_validator("user_id", "message", "employee_id", mode="before")
     @classmethod
     def normalize_text(cls, value: Any) -> str:
         """规范化必填文本字段。"""
@@ -64,17 +59,19 @@ class ChatStreamRequest(BaseModel):
 
 class MemoryFileUpdateRequest(BaseModel):
     """记忆文件更新请求体。"""
+
     content: str
     mode: Literal["overwrite", "append"] = "overwrite"
 
 
 class FlushRequest(BaseModel):
     """手动触发记忆刷盘请求体。"""
+
     user_id: str = Field(..., min_length=1)
-    session_id: str = Field(default="default", min_length=1)
+    employee_id: str = Field(default="1", min_length=1)
     max_tool_rounds: int | None = Field(default=None, ge=1, le=20)
 
-    @field_validator("user_id", "session_id", mode="before")
+    @field_validator("user_id", "employee_id", mode="before")
     @classmethod
     def normalize_text(cls, value: Any) -> str:
         """规范化必填文本字段。"""
@@ -83,6 +80,7 @@ class FlushRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     """用户设置更新请求体。"""
+
     user_id: str = Field(..., min_length=1)
     model: str = Field(default="agent-advoo")
     api_key: str = Field(default="")

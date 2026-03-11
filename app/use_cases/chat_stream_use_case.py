@@ -18,6 +18,7 @@ class ChatStreamUseCase:
         self,
         *,
         user_id: str,
+        employee_id: str,
         session_id: str,
         message: str,
         llm_config: LLMConfig,
@@ -27,10 +28,10 @@ class ChatStreamUseCase:
         """执行聊天流程并返回最终处理结果。"""
         return await self.memory_context.process_chat(
             user_id=user_id,
+            employee_id=employee_id,
             session_id=session_id,
             user_message=message,
             llm_config=llm_config,
             max_tool_rounds=max_tool_rounds,
             on_event=on_event,
         )
-

@@ -1,4 +1,4 @@
-# 数据模型与持久化
+﻿# 数据模型与持久化
 
 ## 本文范围
 
@@ -17,13 +17,18 @@
 字段：
 
 - `user_id`（PK part）
-- `session_id`（PK part）
+- `session_id`（PK part，格式 `employee-{employee_id}`）
 - `workbench_summary`
 - `is_flushing`
 - `created_at`
 - `updated_at`
 
 主键：`(user_id, session_id)`
+
+说明：
+
+- 当前版本将 `session_id` 作为数字员工的绑定会话 ID。
+- 例如：员工 `1` -> `session_id=employee-1`。
 
 ### 1.2 `messages`
 
@@ -58,18 +63,23 @@
 
 `data/user/<user_id>/`
 
-当前目录树：
+目录树（示例：两个员工）：
 
 ```text
 data/user/<user_id>/
 ├── employee/
-│   └── 1/
+│   ├── 1/
+│   │   ├── memory.md
+│   │   ├── notebook/
+│   │   │   ├── 素材库笔记.md
+│   │   │   ├── 日程表.md
+│   │   │   ├── 人格设定.md
+│   │   │   └── 工作手册.md
+│   │   ├── workspace/
+│   │   └── skills/
+│   └── 2/
 │       ├── memory.md
 │       ├── notebook/
-│       │   ├── 素材库笔记.md
-│       │   ├── 日程表.md
-│       │   ├── 人格设定.md
-│       │   └── 工作手册.md
 │       ├── workspace/
 │       └── skills/
 ├── brand_library/
@@ -78,19 +88,19 @@ data/user/<user_id>/
 
 结构语义：
 
-- `employee/1`：当前运行态记忆主目录。
-- `employee/1/memory.md`：压缩后的长期记忆主文件。
-- `employee/1/notebook/*.md`：分类记忆笔记（素材库笔记、日程表、人格设定、工作手册）。
-- `employee/1/workspace/`：初始为空；后续用于存放用户上传文件与从 `brand_library` 复制的素材。
-- `employee/1/skills/`：初始为空；后续用于存放从 `skill_library` 复制的记忆文件。
+- `employee/<employee_id>`：单个数字员工的数据根目录。
+- `employee/<employee_id>/memory.md`：该员工的压缩长期记忆主文件。
+- `employee/<employee_id>/notebook/*.md`：该员工的分类记忆笔记。
+- `employee/<employee_id>/workspace/`：员工工作空间目录。
+- `employee/<employee_id>/skills/`：员工技能文件目录。
 
-接口可见记忆文件（`GET /memory/files`）来自 `employee/1`，逻辑文件名保持无路径形式：
+接口可见记忆文件（`GET /memory/files`）来自当前员工目录，`files[]` 中返回逻辑文件名 + 相对路径：
 
 - `memory.md`
-- `人格设定.md`
-- `日程表.md`
-- `工作手册.md`
-- `素材库笔记.md`
+- `notebook/人格设定.md`
+- `notebook/日程表.md`
+- `notebook/工作手册.md`
+- `notebook/素材库笔记.md`
 
 ## 3. 分区语义（messages.zone）
 
@@ -110,12 +120,14 @@ data/user/<user_id>/
 
 ## 5. 数据初始化
 
-首次启动会自动：
+首次访问某个 `user_id` 时会自动：
 
-1. 创建 `data/agent_state.db`
-2. 初始化 `data/user/<user_id>/employee/1` 目录骨架
-3. 补齐缺失的记忆模板文件（`employee/1`）
+1. 创建 `data/agent_state.db`（若不存在）
+2. 创建默认员工 `employee/1` 并绑定 `session_id=employee-1`
+3. 初始化 `employee/1` 目录骨架与记忆模板文件
+
+创建新员工时会自动初始化对应 `employee/<employee_id>` 目录与模板文件。
 
 ## 6. 兼容策略
 
-当前版本不做旧目录与旧命名的自动迁移；历史数据需手动整理后再接入。
+当前版本不做旧会话 ID 到员工模型的自动迁移；历史数据需手动整理后再接入。

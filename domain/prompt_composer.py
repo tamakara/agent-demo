@@ -105,15 +105,20 @@ class PromptComposer:
         self,
         *,
         user_id: str,
+        employee_id: str,
         session: dict[str, Any],
         model: str,
         thresholds: WindowThresholds,
-        list_memory_files: Callable[[str], list[str]],
+        list_memory_files: Callable[[str, str], list[str]],
         read_memory_file: Callable[..., Any],
     ) -> str:
         """组合并生成目标内容。"""
         try:
-            system_prompt_markdown = await read_memory_file(user_id=user_id, file_name=SYSTEM_PROMPT_FILE)
+            system_prompt_markdown = await read_memory_file(
+                user_id=user_id,
+                employee_id=employee_id,
+                file_name=SYSTEM_PROMPT_FILE,
+            )
         except Exception:  # noqa: BLE001
             system_prompt_markdown = ""
 
@@ -124,11 +129,15 @@ class PromptComposer:
             tool_defs_text = self._render_tool_definitions_from_schema()
 
         memory_sections: list[str] = []
-        for file_name in list_memory_files(user_id):
+        for file_name in list_memory_files(user_id, employee_id):
             if file_name in {SYSTEM_PROMPT_FILE, ASSET_PLACEHOLDER_FILE}:
                 continue
             try:
-                content = await read_memory_file(user_id=user_id, file_name=file_name)
+                content = await read_memory_file(
+                    user_id=user_id,
+                    employee_id=employee_id,
+                    file_name=file_name,
+                )
             except Exception:  # noqa: BLE001
                 continue
             stripped = str(content).strip()
@@ -228,5 +237,4 @@ class PromptComposer:
             previous_role = "assistant" if normalized_role == "tool" else normalized_role
             break
         return previous_role
-
 

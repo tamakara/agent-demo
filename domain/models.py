@@ -26,9 +26,10 @@ class GlobalSettings:
 
 
 @dataclass(slots=True)
-class SessionEntry:
-    """会话列表条目。"""
+class EmployeeEntry:
+    """数字员工列表条目。"""
     user_id: str
+    employee_id: str
     session_id: str
     is_flushing: bool
     created_at: str
@@ -37,10 +38,11 @@ class SessionEntry:
 
 
 @dataclass(slots=True)
-class SessionMessage:
-    """会话消息条目。"""
+class EmployeeMessage:
+    """数字员工消息条目。"""
     id: int
     user_id: str
+    employee_id: str
     session_id: str
     role: str
     content: str
@@ -72,13 +74,15 @@ class LLMRunResult:
 class MemoryFileEntry:
     """记忆文件条目。"""
     file_name: str
+    relative_path: str
     content: str
 
 
 @dataclass(slots=True)
 class MemoryStatus:
-    """会话记忆状态。"""
+    """数字员工记忆状态。"""
     user_id: str
+    employee_id: str
     session_id: str
     total_tokens: int
     resident_tokens: int
@@ -93,5 +97,6 @@ class FlushResult:
     """手动刷盘结果。"""
     accepted: bool
     user_id: str
+    employee_id: str
     session_id: str
     is_flushing: bool
