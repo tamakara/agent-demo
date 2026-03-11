@@ -26,6 +26,20 @@ const els = {
   tokenSum: $("tokenSummary"), resBar: $("residentBar"), diaBar: $("dialogueBar"), bufBar: $("bufferBar")
 };
 
+const toEditableRelativePath = (path) => {
+  const raw = String(path || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("/employee/")) return raw.slice("/employee/".length);
+  if (raw.startsWith("employee/")) return raw.slice("employee/".length);
+  return raw;
+};
+
+const findEditableFile = (path) => {
+  const normalized = toEditableRelativePath(path);
+  if (!normalized) return null;
+  return state.files.find(f => f.relative_path === normalized || f.file_name === normalized) || null;
+};
+
 // =================API 封装库=================
 const api = {
   async req(method, path, body = null, query = {}) {
@@ -80,8 +94,19 @@ const ui = {
   
   updateTokenBoard(status) {
     if(!status) return;
-    const { thresholds = {}, resident_tokens = 0, dialogue_tokens = 0, buffer_tokens = 0, total_tokens = 0 } = status;
+    const {
+      thresholds = {},
+      resident_tokens = 0,
+      dialogue_tokens = 0,
+      buffer_tokens = 0,
+      total_tokens = 0,
+      is_flushing = false
+    } = status;
     const limit = thresholds.total_limit || 200000;
+    const residentBudget = thresholds.resident_limit || 0;
+    const dialogueBudget = thresholds.dialogue_limit || Math.max(0, limit - residentBudget);
+    const bufferSharedRemaining = Math.max(0, dialogueBudget - dialogue_tokens);
+    const fmt = (n) => Number(n || 0).toLocaleString("zh-CN");
     
     const getPct = (val) => Math.min(100, (val / limit) * 100);
     els.resBar.style.width = `${getPct(resident_tokens)}%`;
@@ -90,7 +115,13 @@ const ui = {
     els.bufBar.style.left = `${Math.min(100, getPct(resident_tokens) + getPct(dialogue_tokens))}%`;
     els.bufBar.style.width = `${getPct(buffer_tokens)}%`;
     
-    els.tokenSum.innerHTML = `总计: <b>${total_tokens}</b> / ${limit} (刷盘状态: ${status.is_flushing ? '进行中' : '空闲'})`;
+    els.tokenSum.innerHTML = [
+      `刷盘状态: <b>${is_flushing ? "刷盘中" : "空闲"}</b>`,
+      `常驻区: <b>${fmt(resident_tokens)}</b> / 预算 <b>${fmt(residentBudget)}</b>`,
+      `对话区: <b>${fmt(dialogue_tokens)}</b> / 预算 <b>${fmt(dialogueBudget)}</b>`,
+      `缓冲区: <b>${fmt(buffer_tokens)}</b> / 共享预算 <b>${fmt(dialogueBudget)}</b> (剩余 ${fmt(bufferSharedRemaining)})`,
+      `总计: <b>${fmt(total_tokens)}</b> / ${fmt(limit)}`
+    ].join("<br>");
   },
 
   renderTree() {
@@ -105,9 +136,12 @@ const ui = {
     
     const buildNode = (entry, depth = 0) => {
       const isExpanded = state.expandedDirs.has(entry.path);
-      const segments = entry.path.split('/');
-      const isExternalRoot = entry.path.startsWith('../') && segments.length === 2;
-      const displayName = isExternalRoot ? entry.path : (segments[segments.length - 1] || entry.path);
+      const parts = entry.path.split('/').filter(Boolean);
+      const isRootFolder = entry.path.startsWith('/') && parts.length === 1;
+      const isEmployeeSecondDir = entry.is_dir && parts[0] === "employee" && parts.length === 2;
+      const displayName = isRootFolder
+        ? entry.path
+        : (isEmployeeSecondDir ? `/${parts[1]}` : (parts[parts.length - 1] || entry.path));
       const row = document.createElement("div");
       row.className = `tree-row ${entry.is_dir ? 'dir' : 'file'} ${state.activeFile === entry.path ? 'active' : ''}`;
       row.style.paddingLeft = `${depth * 12 + 8}px`;
@@ -136,7 +170,7 @@ const ui = {
   },
 
   updateEditor() {
-    const file = state.files.find(f => f.relative_path === state.activeFile || f.file_name === state.activeFile);
+    const file = findEditableFile(state.activeFile);
     els.fileName.textContent = file ? file.file_name : "未选择文件";
     els.fileContent.value = file ? file.content : "";
   },
@@ -247,17 +281,26 @@ const logic = {
       const history = await api.get("/employee-messages", { limit: "50" });
       els.chatLog.innerHTML = "";
       (history.messages || []).forEach(m => ui.appendChat(m.role, m.content));
-      
-      const mem = await api.get("/memory/files");
-      state.files = mem.files || [];
-      state.dataTree = mem.tree || [];
-      ui.renderTree();
-      ui.updateEditor();
+
+      await this.refreshFiles();
       
       await this.refreshStatus();
     } catch (err) {
       console.warn("上下文加载失败", err);
     }
+  },
+
+  async refreshFiles() {
+    const currentActive = state.activeFile;
+    const mem = await api.get("/memory/files");
+    state.files = mem.files || [];
+    state.dataTree = mem.tree || [];
+    if (currentActive) {
+      const stillExists = state.dataTree.some(entry => entry.path === currentActive && !entry.is_dir);
+      state.activeFile = stillExists ? currentActive : null;
+    }
+    ui.renderTree();
+    ui.updateEditor();
   },
 
   async refreshStatus() {
@@ -328,8 +371,13 @@ const logic = {
 
     els.btnSaveFile.onclick = async () => {
       if(!state.activeFile) return alert("未选择文件");
-      await api.put(`/memory/files/${encodeURIComponent(state.activeFile)}`, { content: els.fileContent.value, mode: "overwrite" });
-      alert("保存成功");
+      const file = findEditableFile(state.activeFile);
+      if (!file) return alert("该文件不支持直接编辑");
+      const content = els.fileContent.value;
+      const result = await api.put(`/memory/files/${encodeURIComponent(file.file_name)}`, { content, mode: "overwrite" });
+      file.content = typeof result?.content === "string" ? result.content : content;
+      await this.refreshFiles();
+      alert("保存成功，目录与文件内容已刷新");
     };
 
     els.btnSettings.onclick = async () => {

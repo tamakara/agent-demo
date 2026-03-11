@@ -168,42 +168,54 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         return self._sort_memory_file_names(existing_sorted)
 
     def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
-        """列出员工目录树，用于前端目录展示。"""
+        """列出用户目录三层结构，用于前端目录展示。"""
         self._ensure_user_scaffold(user_id, employee_id)
-        employee_root = user_employee_member_dir(user_id, employee_id)
         brand_root = user_brand_library_dir(user_id)
         skill_root = user_skill_library_dir(user_id)
+        notebook_root = user_employee_notebook_dir(user_id, employee_id)
+        skills_root = user_employee_skills_dir(user_id, employee_id)
+        workspace_root = user_employee_workspace_dir(user_id, employee_id)
+        entries: list[dict[str, object]] = []
+        seen_paths: set[str] = set()
 
-        entries: list[dict[str, object]] = [
-            {"path": ".", "is_dir": True},
-        ]
+        def append_entry(path: str, is_dir: bool) -> None:
+            """追加目录项并保持去重。"""
+            if path in seen_paths:
+                return
+            seen_paths.add(path)
+            entries.append({"path": path, "is_dir": is_dir})
 
-        def append_tree(base_dir: Path, prefix: str = "") -> None:
-            """将目录树节点追加到 ``entries``。"""
-            if prefix:
-                entries.append({"path": prefix, "is_dir": True})
-            for current in sorted(
-                base_dir.rglob("*"),
-                key=lambda p: (len(p.relative_to(base_dir).parts), str(p.relative_to(base_dir)).lower()),
-            ):
-                relative = current.relative_to(base_dir).as_posix()
-                path = f"{prefix}/{relative}" if prefix else relative
-                entries.append(
-                    {
-                        "path": path,
-                        "is_dir": current.is_dir(),
-                    }
-                )
+        def append_direct_markdown_files(base_dir: Path, prefix: str) -> None:
+            """仅追加目录下一层 ``.md`` 文件，限制目录深度到三层。"""
+            if not base_dir.exists():
+                return
+            for file_path in sorted(base_dir.glob("*.md"), key=lambda p: p.name.lower()):
+                if file_path.is_file():
+                    append_entry(f"{prefix}/{file_path.name}", is_dir=False)
 
-        append_tree(employee_root)
-        append_tree(brand_root, "../brand_library")
-        append_tree(skill_root, "../skill_library")
+        append_entry("/brand_library", is_dir=True)
+        append_direct_markdown_files(brand_root, "/brand_library")
+
+        append_entry("/employee", is_dir=True)
+        append_entry("/employee/memory.md", is_dir=False)
+
+        append_entry("/employee/notebook", is_dir=True)
+        append_direct_markdown_files(notebook_root, "/employee/notebook")
+
+        append_entry("/employee/skills", is_dir=True)
+        append_direct_markdown_files(skills_root, "/employee/skills")
+
+        append_entry("/employee/workspace", is_dir=True)
+        append_direct_markdown_files(workspace_root, "/employee/workspace")
+
+        append_entry("/skill_library", is_dir=True)
+        append_direct_markdown_files(skill_root, "/skill_library")
         return entries
 
     def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:
-        """返回员工数据目录绝对路径。"""
+        """返回用户数据目录绝对路径。"""
         self._ensure_user_scaffold(user_id, employee_id)
-        return str(user_employee_member_dir(user_id, employee_id).resolve())
+        return str(user_root_dir(user_id).resolve())
 
     @staticmethod
     def memory_relative_path(file_name: str) -> str:
