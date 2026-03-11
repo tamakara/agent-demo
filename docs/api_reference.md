@@ -150,11 +150,20 @@ Query:
 
 - `user_id` 必填
 
+说明：
+
+- 返回 `employee/1` 下可编辑记忆文件（逻辑文件名不带路径）。
+- 默认包含：`memory.md`、`人格设定.md`、`日程表.md`、`工作手册.md`、`素材库笔记.md`。
+
 #### `PUT /memory/files/{file_name}`
 
 Query:
 
 - `user_id` 必填
+
+Path:
+
+- `file_name`：逻辑文件名（例如 `memory.md`、`人格设定.md`）
 
 Body:
 
@@ -170,6 +179,11 @@ Body:
 Query:
 
 - `user_id` 必填
+
+说明：
+
+- 仅重置 `employee/1` 下的记忆模板 Markdown 文件。
+- `workspace/`、`skills/`、`brand_library/`、`skill_library/` 不会被清空。
 
 #### `GET /memory/status`
 

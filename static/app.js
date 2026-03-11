@@ -666,7 +666,7 @@ async function loadMemoryFiles() {
 }
 
 async function resetMemoryFiles() {
-  const confirmed = window.confirm("确认重置记忆文件吗？这会清空当前 memory 目录并用模板覆盖。");
+  const confirmed = window.confirm("确认重置记忆文件吗？这会清空当前 employee 目录下的记忆模板文件并覆盖为初始内容。");
   if (!confirmed) {
     return;
   }

@@ -84,7 +84,7 @@ data: { ...json envelope... }
     "event": "tool_call",
     "tool_name": "read_memory_file",
     "arguments": {
-      "file_name": "通用记忆.md"
+      "file_name": "memory.md"
     }
   }
 }

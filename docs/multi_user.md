@@ -36,9 +36,18 @@
 
 包含：
 
-- `memory/`
+- `employee/`
 - `brand_library/`
 - `skill_library/`
+
+`employee/` 下默认仅创建 1 号员工目录：
+
+- `employee/1/`：`memory.md` + `notebook/`（`素材库笔记.md`、`日程表.md`、`人格设定.md`、`工作手册.md`）+ `workspace/` + `skills/`
+
+隔离粒度：
+
+- 不同 `user_id` 的 `employee/1` 文件互不可见
+- `memory` 接口默认读写 `employee/1` 的记忆文件集合
 
 ## 4. 运行时隔离
 

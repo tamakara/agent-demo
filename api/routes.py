@@ -79,6 +79,7 @@ def create_router(container: AppContainer) -> APIRouter:
         request_id = _new_request_id()
         try:
             user_id = normalize_user_id(request.user_id)
+            await container.memory_file_service.ensure_user_files(user_id)
             entry = await container.session_service.create_session(user_id, request.session_id)
             return JSONResponse(success_response(request_id=request_id, data={"created": True, "session": asdict(entry)}))
         except AppError as exc:
