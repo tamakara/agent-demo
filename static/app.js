@@ -21,9 +21,11 @@ const els = {
   userId: $("userIdInput"), btnUser: $("switchUserBtn"),
   chatLog: $("chatLog"), chatForm: $("chatForm"), msgInput: $("messageInput"),
   empSelect: $("employeeSelect"), btnNewEmp: $("newEmployeeBtn"), btnReloadEmp: $("reloadEmployeeBtn"),
+  btnResetMemory: $("resetMemoryBtn"), btnReloadFiles: $("reloadFilesBtn"),
   tree: $("directoryTree"), fileContent: $("fileContent"), fileName: $("activeFileName"), btnSaveFile: $("saveFileBtn"),
   modal: $("settingsModal"), btnSettings: $("openSettingsBtn"),
-  tokenSum: $("tokenSummary"), resBar: $("residentBar"), diaBar: $("dialogueBar"), bufBar: $("bufferBar")
+  tokenSum: $("tokenSummary"), resBar: $("residentBar"), diaBar: $("dialogueBar"), bufBar: $("bufferBar"),
+  btnForceFlush: $("forceFlushBtn")
 };
 
 const toEditableRelativePath = (path) => {
@@ -117,10 +119,10 @@ const ui = {
     
     els.tokenSum.innerHTML = [
       `刷盘状态: <b>${is_flushing ? "刷盘中" : "空闲"}</b>`,
-      `常驻区: <b>${fmt(resident_tokens)}</b> / 预算 <b>${fmt(residentBudget)}</b>`,
-      `对话区: <b>${fmt(dialogue_tokens)}</b> / 预算 <b>${fmt(dialogueBudget)}</b>`,
-      `缓冲区: <b>${fmt(buffer_tokens)}</b> / 共享预算 <b>${fmt(dialogueBudget)}</b> (剩余 ${fmt(bufferSharedRemaining)})`,
-      `总计: <b>${fmt(total_tokens)}</b> / ${fmt(limit)}`
+      `常驻区: <b>${fmt(resident_tokens)} token</b> / <b>${fmt(residentBudget)} token</b>`,
+      `对话区: <b>${fmt(dialogue_tokens)} token</b> / <b>${fmt(dialogueBudget)} token</b>`,
+      `缓冲区: <b>${fmt(buffer_tokens)} token</b> / 共享上限 <b>${fmt(dialogueBudget)} token</b> (剩余 ${fmt(bufferSharedRemaining)} token)`,
+      `总计: <b>${fmt(total_tokens)} token</b> / <b>${fmt(limit)} token</b>`
     ].join("<br>");
   },
 
@@ -186,7 +188,7 @@ const ui = {
 
   lockUI(locked) {
     const disabled = !state.userId || locked;
-    [els.empSelect, els.btnNewEmp, els.btnSettings, $("saveConfigBtn"), $("saveFileBtn"), els.msgInput, els.chatForm.querySelector("button")].forEach(el => el.disabled = disabled);
+    [els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnResetMemory, els.btnReloadFiles, els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), $("saveFileBtn"), els.msgInput, els.chatForm.querySelector("button")].forEach(el => el.disabled = disabled);
     if (!state.userId) els.msgInput.placeholder = "请先配置并应用用户 ID...";
   }
 };
@@ -259,11 +261,32 @@ const logic = {
     });
     state.settings = latest || null;
     ui.applySettings(state.settings);
-    ui.appendChat('meta', "全局设置已更新");
+    ui.appendChat('meta', "用户配置已更新");
+  },
+
+  async manualFlush() {
+    if (!state.userId || !state.activeEmployeeId) return ui.appendChat('error', "请先选择用户与员工");
+    const maxToolRounds = this.parseIntOrNull($("maxToolRounds").value);
+    const body = { user_id: state.userId, employee_id: state.activeEmployeeId };
+    if (maxToolRounds != null) body.max_tool_rounds = maxToolRounds;
+    const data = await api.post("/memory/flush", body);
+    const accepted = !!data?.accepted;
+    ui.appendChat("meta", accepted ? "已触发手动刷盘" : "当前已有刷盘任务在执行");
+    await this.refreshStatus();
+  },
+
+  async resetMemory() {
+    if (!state.userId || !state.activeEmployeeId) return ui.appendChat('error', "请先选择用户与员工");
+    const confirmed = window.confirm("确认重置记忆吗？将重置 memory.md 与 notebook 下的记忆文件。");
+    if (!confirmed) return;
+    await api.post("/memory/reset");
+    await this.refreshFiles();
+    await this.refreshStatus();
+    ui.appendChat("meta", "记忆已重置（memory.md 与 notebook 下文件）");
   },
 
   async createEmployee() {
-    const data = await api.post("/employees");
+    const data = await api.post("/employees", { user_id: state.userId });
     state.employees.push(data.employee);
     state.activeEmployeeId = data.employee.employee_id;
     this.renderEmpSelect();
@@ -278,6 +301,7 @@ const logic = {
   async loadContext() {
     if(!state.activeEmployeeId) return;
     try {
+      state.expandedDirs = new Set();
       const history = await api.get("/employee-messages", { limit: "50" });
       els.chatLog.innerHTML = "";
       (history.messages || []).forEach(m => ui.appendChat(m.role, m.content));
@@ -295,6 +319,13 @@ const logic = {
     const mem = await api.get("/memory/files");
     state.files = mem.files || [];
     state.dataTree = mem.tree || [];
+    if (state.expandedDirs.size === 0) {
+      state.expandedDirs = new Set(
+        state.dataTree
+          .filter(entry => entry.is_dir && entry.path !== ".")
+          .map(entry => entry.path)
+      );
+    }
     if (currentActive) {
       const stillExists = state.dataTree.some(entry => entry.path === currentActive && !entry.is_dir);
       state.activeFile = stillExists ? currentActive : null;
@@ -368,23 +399,50 @@ const logic = {
     els.empSelect.onchange = (e) => { state.activeEmployeeId = e.target.value; this.loadContext(); };
     els.btnNewEmp.onclick = async () => { await this.createEmployee(); await this.loadContext(); };
     els.btnReloadEmp.onclick = () => this.switchUser();
+    els.btnReloadFiles.onclick = async () => {
+      try {
+        await this.refreshFiles();
+      } catch (err) {
+        ui.appendChat('error', "刷新目录失败: " + err.message);
+      }
+    };
+    els.btnResetMemory.onclick = async () => {
+      try {
+        await this.resetMemory();
+      } catch (err) {
+        ui.appendChat('error', "重置记忆失败: " + err.message);
+      }
+    };
 
     els.btnSaveFile.onclick = async () => {
-      if(!state.activeFile) return alert("未选择文件");
-      const file = findEditableFile(state.activeFile);
-      if (!file) return alert("该文件不支持直接编辑");
-      const content = els.fileContent.value;
-      const result = await api.put(`/memory/files/${encodeURIComponent(file.file_name)}`, { content, mode: "overwrite" });
-      file.content = typeof result?.content === "string" ? result.content : content;
-      await this.refreshFiles();
-      alert("保存成功，目录与文件内容已刷新");
+      try {
+        if(!state.activeFile) return ui.appendChat("error", "未选择文件");
+        const file = findEditableFile(state.activeFile);
+        if (!file) return ui.appendChat("error", "该文件不支持直接编辑");
+
+        const content = els.fileContent.value;
+        const result = await api.put(`/memory/files/${encodeURIComponent(file.file_name)}`, { content, mode: "overwrite" });
+        file.content = typeof result?.content === "string" ? result.content : content;
+        await this.refreshFiles();
+        ui.appendChat("meta", `保存成功：${file.file_name}`);
+      } catch (err) {
+        ui.appendChat("error", "保存修改失败: " + err.message);
+      }
+    };
+
+    els.btnForceFlush.onclick = async () => {
+      try {
+        await this.manualFlush();
+      } catch (err) {
+        ui.appendChat('error', "手动刷盘失败: " + err.message);
+      }
     };
 
     els.btnSettings.onclick = async () => {
       try {
         await this.loadSettings();
       } catch (err) {
-        ui.appendChat('error', "加载全局设置失败: " + err.message);
+        ui.appendChat('error', "加载用户配置失败: " + err.message);
       }
       els.modal.showModal();
     };
@@ -394,7 +452,7 @@ const logic = {
         await this.saveSettings();
         els.modal.close();
       } catch (err) {
-        ui.appendChat('error', "保存全局设置失败: " + err.message);
+        ui.appendChat('error', "保存用户配置失败: " + err.message);
       }
     };
   }

@@ -14,8 +14,9 @@
     <div class="workspace-grid">
       <div class="col-left">
         <section class="panel token-panel">
-          <div class="panel-header">
+          <div class="panel-header flex-between">
             <h2>Token 仪表盘</h2>
+            <button id="forceFlushBtn" class="btn btn-sm text-danger" type="button">手动刷盘</button>
           </div>
           <div class="meter-wrapper">
             <div class="meter">
@@ -61,7 +62,7 @@
             </div>
             <div class="btn-group">
               <button id="switchUserBtn" class="btn" type="button">应用用户</button>
-              <button id="openSettingsBtn" class="btn btn-outline" type="button">全局设置</button>
+              <button id="openSettingsBtn" class="btn btn-outline" type="button">用户配置</button>
             </div>
           </div>
         </section>
@@ -95,11 +96,11 @@
   <dialog id="settingsModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>全局设置</h2>
+        <h2>用户配置</h2>
         <button id="closeSettingsBtn" class="btn btn-sm" type="button">关闭</button>
       </div>
       <div class="modal-body">
-        <p class="text-muted text-sm mb-4">设置会以全局单例写入，与具体数字员工无关。</p>
+        <p class="text-muted text-sm mb-4">设置按用户维度写入，与具体数字员工无关。</p>
         <div class="grid-form">
           <label><span>Model Name</span><input id="model" type="text" placeholder="agent-advoo"></label>
           <label><span>API Key</span><input id="apiKey" type="password" placeholder="sk-..."></label>
@@ -109,7 +110,6 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button id="forceFlushBtn" class="btn text-danger" type="button">手动刷盘</button>
         <button id="saveConfigBtn" class="btn btn-primary" type="button">保存配置</button>
       </div>
     </div>
