@@ -7,104 +7,110 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=20260311-employee-1">
+  <link rel="stylesheet" href="/static/style.css?v=20260311-employee-6">
 </head>
 <body>
   <main class="layout">
-    <div class="top-row">
-      <section class="panel token-board">
-        <div class="section-head flex-between" style="align-items: center;">
-          <div>
+    <div class="workspace-row">
+      <div class="left-column">
+        <section class="panel token-panel">
+          <div class="section-head">
             <h2>Token 仪表盘</h2>
-            <p>实时展示上下文各区域的占用情况</p>
           </div>
-          <div class="top-actions">
-            <div class="user-chip">当前用户：<b id="currentUserId">未设置</b></div>
-            <button id="switchUserBtn" class="btn" type="button">切换用户</button>
+          <div class="meter-wrapper">
+            <div class="meter">
+              <div id="residentBar" class="meter-segment resident"></div>
+              <div id="dialogueBar" class="meter-segment dialogue"></div>
+              <div id="bufferBar" class="meter-segment buffer"></div>
+            </div>
+            <div class="meter-legend">
+              <span><i class="dot resident"></i>常驻区</span>
+              <span><i class="dot dialogue"></i>对话区</span>
+              <span><i class="dot buffer"></i>缓冲区</span>
+            </div>
+          </div>
+          <div id="tokenSummary" class="token-summary">正在加载状态...</div>
+        </section>
+
+        <section class="panel chat workspace-panel">
+          <div class="section-head flex-between">
+            <div>
+              <h2>对话区</h2>
+            </div>
+            <div class="chat-toolbar">
+              <div class="employee-select-wrap">
+                <select id="employeeSelect"></select>
+              </div>
+              <button id="newEmployeeBtn" class="btn icon-btn" type="button" title="新建员工">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <button id="reloadEmployeeBtn" class="btn icon-btn" type="button" title="刷新员工">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              </button>
+            </div>
+          </div>
+          <div id="chatLog" class="chat-log" aria-live="polite"></div>
+          <form id="chatForm" class="chat-form">
+            <textarea id="messageInput" rows="3" placeholder="输入消息 (Enter 发送, Shift+Enter 换行)..."></textarea>
+            <button type="submit" class="btn primary send-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              发送
+            </button>
+          </form>
+        </section>
+      </div>
+
+      <div class="right-column">
+        <section class="panel user-panel">
+          <div class="section-head">
+            <h2>用户管理</h2>
+          </div>
+          <div class="user-panel-actions">
+            <div class="user-id-inline">
+              <span>用户 ID</span>
+              <input id="userIdInput" type="text" maxlength="64" placeholder="请输入用户 ID（字母/数字/._-）">
+            </div>
+            <button id="switchUserBtn" class="btn" type="button">应用用户</button>
             <button id="openSettingsBtn" class="btn primary">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
               设置
             </button>
+            <div class="user-chip">当前用户：<b id="currentUserId">未设置</b></div>
           </div>
-        </div>
-        <div class="meter-wrapper">
-          <div class="meter">
-            <div id="residentBar" class="meter-segment resident"></div>
-            <div id="dialogueBar" class="meter-segment dialogue"></div>
-            <div id="bufferBar" class="meter-segment buffer"></div>
-          </div>
-          <div class="meter-legend">
-            <span><i class="dot resident"></i>常驻区</span>
-            <span><i class="dot dialogue"></i>对话区</span>
-            <span><i class="dot buffer"></i>缓冲区</span>
-          </div>
-        </div>
-        <div id="tokenSummary" class="token-summary">正在加载状态...</div>
-      </section>
-    </div>
+        </section>
 
-    <div class="workspace-row">
-      <section class="panel chat workspace-panel">
-        <div class="section-head flex-between">
-          <div>
-            <h2>对话区</h2>
-            <p>每个数字员工绑定唯一 session，聊天历史独立</p>
-          </div>
-          <div class="chat-toolbar">
-            <div class="employee-select-wrap">
-              <select id="employeeSelect"></select>
+        <section class="panel memory-files workspace-panel">
+          <div class="section-head flex-between">
+            <div>
+              <h2>员工数据</h2>
             </div>
-            <button id="newEmployeeBtn" class="btn icon-btn" type="button" title="新建员工">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            </button>
-            <button id="reloadEmployeeBtn" class="btn icon-btn" type="button" title="刷新员工">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-            </button>
-          </div>
-        </div>
-        <div id="chatLog" class="chat-log" aria-live="polite"></div>
-        <form id="chatForm" class="chat-form">
-          <textarea id="messageInput" rows="3" placeholder="输入消息 (Enter 发送, Shift+Enter 换行)..."></textarea>
-          <button type="submit" class="btn primary send-btn">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-            发送
-          </button>
-        </form>
-      </section>
-
-      <section class="panel memory-files workspace-panel">
-        <div class="section-head flex-between">
-          <div>
-            <h2>员工数据目录与记忆文件</h2>
-            <p>查看当前员工目录，点击可编辑记忆文件</p>
-          </div>
-          <div class="chat-toolbar">
-            <button id="resetMemoryBtn" class="btn" type="button" title="重置记忆文件">重置</button>
-            <button id="reloadFilesBtn" class="btn icon-btn" title="刷新目录与文件">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-            </button>
-          </div>
-        </div>
-        <div class="memory-layout">
-          <aside class="memory-tree-panel">
-            <div class="memory-tree-head">
-              <strong>数据目录</strong>
-              <div id="dataDirPath" class="data-dir-path">-</div>
+            <div class="chat-toolbar">
+              <button id="resetMemoryBtn" class="btn" type="button" title="重置记忆文件">重置</button>
+              <button id="reloadFilesBtn" class="btn icon-btn" title="刷新目录与文件">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              </button>
             </div>
-            <div id="directoryTree" class="directory-tree"></div>
-          </aside>
-          <div class="memory-editor-panel">
-            <div id="fileTabs" class="file-tabs"></div>
-            <div class="editor">
-              <div class="editor-header">
-                <strong id="activeFileName">未选择文件</strong>
-                <button id="saveFileBtn" class="btn small primary" type="button">保存修改</button>
+          </div>
+          <div class="memory-layout">
+            <aside class="memory-tree-panel">
+              <div class="memory-tree-head">
+                <strong>数据目录</strong>
+                <div id="dataDirPath" class="data-dir-path">-</div>
               </div>
-              <textarea id="fileContent" placeholder="请选择文件并编辑内容..."></textarea>
+              <div id="directoryTree" class="directory-tree"></div>
+            </aside>
+            <div class="memory-editor-panel">
+              <div class="editor">
+                <div class="editor-header">
+                  <strong id="activeFileName">未选择文件</strong>
+                  <button id="saveFileBtn" class="btn small primary" type="button">保存修改</button>
+                </div>
+                <textarea id="fileContent" placeholder="请选择文件并编辑内容..."></textarea>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
 
     <dialog id="settingsModal" class="modal">
@@ -160,6 +166,6 @@
     </div>
   </template>
 
-  <script src="/static/app.js?v=20260311-employee-1" defer></script>
+  <script src="/static/app.js?v=20260311-employee-5" defer></script>
 </body>
 </html>

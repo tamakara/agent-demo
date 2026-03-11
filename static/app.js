@@ -5,6 +5,7 @@
   maxToolRounds: document.getElementById("maxToolRounds"),
   totalTokenLimit: document.getElementById("totalTokenLimit"),
   currentUserId: document.getElementById("currentUserId"),
+  userIdInput: document.getElementById("userIdInput"),
   switchUserBtn: document.getElementById("switchUserBtn"),
 
   openSettingsBtn: document.getElementById("openSettingsBtn"),
@@ -25,7 +26,6 @@
   newEmployeeBtn: document.getElementById("newEmployeeBtn"),
   reloadEmployeeBtn: document.getElementById("reloadEmployeeBtn"),
 
-  fileTabs: document.getElementById("fileTabs"),
   fileContent: document.getElementById("fileContent"),
   activeFileName: document.getElementById("activeFileName"),
   saveFileBtn: document.getElementById("saveFileBtn"),
@@ -53,6 +53,7 @@ const DEFAULT_LLM_MODEL = "agent-advoo";
 const DEFAULT_LLM_API_KEY = "";
 const DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1";
 const USER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const USER_ID_STORAGE_KEY = "agent_demo_user_id";
 
 function stringifyForDisplay(value) {
   if (typeof value === "string") {
@@ -126,8 +127,79 @@ function setDefaultLLMConfig() {
 function setActiveUserId(userId) {
   state.userId = userId;
   if (elements.currentUserId) {
-    elements.currentUserId.textContent = userId;
+    elements.currentUserId.textContent = userId || "未设置";
   }
+  if (elements.userIdInput && elements.userIdInput.value !== userId) {
+    elements.userIdInput.value = userId || "";
+  }
+  updateUserScopedControls();
+}
+
+function updateUserScopedControls() {
+  const disabled = !state.userId;
+  const controls = [
+    elements.employeeSelect,
+    elements.newEmployeeBtn,
+    elements.reloadEmployeeBtn,
+    elements.openSettingsBtn,
+    elements.saveConfigBtn,
+    elements.reloadFilesBtn,
+    elements.resetMemoryBtn,
+    elements.saveFileBtn,
+    elements.forceFlushBtn,
+  ];
+
+  for (const control of controls) {
+    if (control) {
+      control.disabled = disabled;
+    }
+  }
+
+  if (elements.messageInput) {
+    elements.messageInput.disabled = disabled;
+    elements.messageInput.placeholder = disabled
+      ? "请先在右侧设置用户ID，再开始对话..."
+      : "输入消息 (Enter 发送, Shift+Enter 换行)...";
+  }
+
+  const sendBtn = elements.chatForm?.querySelector('button[type="submit"]');
+  if (sendBtn) {
+    sendBtn.disabled = disabled;
+  }
+}
+
+function persistUserId(userId) {
+  try {
+    window.localStorage.setItem(USER_ID_STORAGE_KEY, userId);
+  } catch (err) {
+    console.warn("保存 user_id 失败", err);
+  }
+}
+
+function loadPersistedUserId() {
+  try {
+    return window.localStorage.getItem(USER_ID_STORAGE_KEY) || "";
+  } catch (err) {
+    console.warn("读取 user_id 失败", err);
+    return "";
+  }
+}
+
+function resolveUserIdCandidate(raw) {
+  const candidate = String(raw || "").trim();
+  if (!candidate) {
+    return {
+      ok: false,
+      error: "请先在右侧用户管理中输入用户ID。",
+    };
+  }
+  if (!USER_ID_PATTERN.test(candidate)) {
+    return {
+      ok: false,
+      error: "用户ID仅允许字母、数字、点、下划线、短横线，且必须以字母或数字开头。",
+    };
+  }
+  return { ok: true, userId: candidate };
 }
 
 function requireUserId() {
@@ -151,27 +223,6 @@ function buildUserQuery(extra = {}, includeEmployee = false) {
     params.set("employee_id", requireEmployeeId());
   }
   return params;
-}
-
-function promptForUserId() {
-  const initial = state.userId || "";
-  while (true) {
-    const raw = window.prompt("请输入用户ID（字母/数字/._-，最长64位）", initial);
-    if (raw === null) {
-      continue;
-    }
-    const candidate = raw.trim();
-    if (!candidate) {
-      window.alert("用户ID不能为空。");
-      continue;
-    }
-    if (!USER_ID_PATTERN.test(candidate)) {
-      window.alert("用户ID仅允许字母、数字、点、下划线、短横线，且必须以字母或数字开头。");
-      continue;
-    }
-    setActiveUserId(candidate);
-    return;
-  }
 }
 
 async function parseEnvelope(resp) {
@@ -308,7 +359,7 @@ function syncActiveFileSelection() {
     return;
   }
   if (!state.activeFile || !state.files.some((f) => f.file_name === state.activeFile)) {
-    state.activeFile = state.files[0].file_name;
+    state.activeFile = null;
   }
 }
 
@@ -479,14 +530,33 @@ function resetMemoryView() {
   state.dataDir = "";
   state.activeFile = null;
   updateEditorByActiveFile();
-  renderFileTabs();
   renderDirectoryTree();
   updateDataDirPath();
 }
 
 async function switchUserContext(options = {}) {
   const announce = options.announce !== false;
-  promptForUserId();
+  const forceReload = options.forceReload === true;
+  const candidateRaw = options.userId ?? elements.userIdInput?.value ?? state.userId;
+  const resolved = resolveUserIdCandidate(candidateRaw);
+  if (!resolved.ok) {
+    reportError(resolved.error);
+    return false;
+  }
+
+  const nextUserId = resolved.userId;
+  const shouldReload = forceReload || nextUserId !== state.userId;
+  setActiveUserId(nextUserId);
+  persistUserId(nextUserId);
+
+  if (!shouldReload) {
+    await refreshStatus();
+    if (announce) {
+      reportMeta(`当前用户：${state.userId}`);
+    }
+    return true;
+  }
+
   state.activeEmployeeId = "";
   state.activeSessionId = "";
   resetMemoryView();
@@ -501,6 +571,7 @@ async function switchUserContext(options = {}) {
   if (announce) {
     reportMeta(`已切换用户：${state.userId}`);
   }
+  return true;
 }
 
 async function handleCreateEmployee() {
@@ -638,9 +709,6 @@ function updateTokenBoard(status) {
   elements.bufferBar.style.width = `${bufferPercent}%`;
 
   elements.tokenSummary.innerHTML =
-    `user id：<b>${status.user_id || state.userId || "-"}</b><br>` +
-    `employee id：<b>${status.employee_id || state.activeEmployeeId || "-"}</b><br>` +
-    `session id：<b>${status.session_id || state.activeSessionId || "-"}</b><br>` +
     `total：<b>${total}</b> / ${totalLimit} token（刷盘阈值：${flushTrigger}）<br>` +
     `常驻区：${resident} | 对话区：${dialogue} | 缓冲区：${buffer}<br>` +
     `预算：系统提示词/记忆 ${systemPromptLimit} | 摘要 ${summaryLimit} | 最近原始对话 ${recentRawLimit} | 对话区 ${dialogueLimit}<br>` +
@@ -680,27 +748,6 @@ function updateEditorByActiveFile() {
 
   elements.activeFileName.textContent = `${current.file_name} (${current.relative_path || current.file_name})`;
   elements.fileContent.value = current.content || "";
-}
-
-function renderFileTabs() {
-  elements.fileTabs.innerHTML = "";
-  for (const file of state.files) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "file-tab";
-    btn.textContent = file.file_name;
-    btn.title = file.relative_path || file.file_name;
-    if (state.activeFile === file.file_name) {
-      btn.classList.add("active");
-    }
-    btn.addEventListener("click", () => {
-      state.activeFile = file.file_name;
-      updateEditorByActiveFile();
-      renderFileTabs();
-      renderDirectoryTree();
-    });
-    elements.fileTabs.appendChild(btn);
-  }
 }
 
 function updateDataDirPath() {
@@ -755,7 +802,6 @@ function renderDirectoryTree() {
     button.addEventListener("click", () => {
       state.activeFile = editable.file_name;
       updateEditorByActiveFile();
-      renderFileTabs();
       renderDirectoryTree();
     });
     elements.directoryTree.appendChild(button);
@@ -780,7 +826,6 @@ async function loadMemoryFiles() {
 
   syncActiveFileSelection();
   updateEditorByActiveFile();
-  renderFileTabs();
   renderDirectoryTree();
   updateDataDirPath();
 }
@@ -801,7 +846,6 @@ async function resetMemoryFiles() {
   state.dataTree = data.tree || [];
   syncActiveFileSelection();
   updateEditorByActiveFile();
-  renderFileTabs();
   renderDirectoryTree();
 
   const restoredCount = Array.isArray(data.restored_files) ? data.restored_files.length : 0;
@@ -847,6 +891,20 @@ async function forceFlush() {
 function bindEvents() {
   if (elements.switchUserBtn) {
     elements.switchUserBtn.addEventListener("click", async () => {
+      try {
+        await switchUserContext();
+      } catch (err) {
+        reportError(err);
+      }
+    });
+  }
+
+  if (elements.userIdInput) {
+    elements.userIdInput.addEventListener("keydown", async (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
       try {
         await switchUserContext();
       } catch (err) {
@@ -970,14 +1028,26 @@ function bindEvents() {
 async function bootstrap() {
   bindEvents();
   setDefaultLLMConfig();
-  promptForUserId();
+
+  const persistedUserId = loadPersistedUserId();
+  const persisted = resolveUserIdCandidate(persistedUserId);
+  if (persisted.ok) {
+    setActiveUserId(persisted.userId);
+  } else {
+    setActiveUserId("");
+    clearChatLog();
+    resetMemoryView();
+    elements.tokenSummary.textContent = "请在右侧用户管理中输入用户ID并点击“应用用户”。";
+  }
 
   try {
-    await ensureActiveEmployee();
-    await loadGlobalLLMConfig();
-    await loadEmployeeHistory({ announce: false });
-    await loadMemoryFiles();
-    await refreshStatus();
+    if (persisted.ok) {
+      await switchUserContext({
+        userId: persisted.userId,
+        announce: false,
+        forceReload: true,
+      });
+    }
     setInterval(refreshStatus, 6000);
   } catch (err) {
     reportError(err);
