@@ -15,14 +15,17 @@ import aiofiles
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # data 目录用于运行期持久化，首次启动时再自动创建。
 DATA_DIR = PROJECT_ROOT / "data"
-MEMORY_DIR = DATA_DIR / "memory"
+USERS_DIR = DATA_DIR / "user"
+MEMORY_SUBDIR = "memory"
+BRAND_LIBRARY_SUBDIR = "brand_library"
+SKILL_LIBRARY_SUBDIR = "skill_library"
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 SYSTEM_PROMPT_FILE = "系统提示词.md"
 ASSET_PLACEHOLDER_FILE = "素材库记忆.md"
 WriteMode = Literal["append", "overwrite"]
 
-# 内置初始记忆文件内容：首次启动时直接写入 data/memory/<user_id>/。
+# 内置初始记忆文件内容：首次启动时直接写入 data/user/<user_id>/memory/。
 INITIAL_MEMORY_FILES: dict[str, str] = {
     "人格记忆.md": (
         "# 人格记忆\n\n"
@@ -142,14 +145,42 @@ def _validate_user_id(user_id: str) -> str:
     return normalized
 
 
-def _user_memory_dir(user_id: str) -> Path:
-    """返回用户独立记忆目录 data/memory/<user_id>。"""
+def _user_root_dir(user_id: str) -> Path:
+    """返回用户独立数据目录 data/user/<user_id>。"""
     valid_user_id = _validate_user_id(user_id)
-    base_dir = MEMORY_DIR.resolve()
-    target = (MEMORY_DIR / valid_user_id).resolve()
+    base_dir = USERS_DIR.resolve()
+    target = (USERS_DIR / valid_user_id).resolve()
     if target == base_dir or base_dir not in target.parents:
         raise ValueError("user_id 对应目录非法")
     return target
+
+
+def _user_memory_dir(user_id: str) -> Path:
+    """返回用户记忆目录 data/user/<user_id>/memory。"""
+    return _user_root_dir(user_id) / MEMORY_SUBDIR
+
+
+def _user_brand_library_dir(user_id: str) -> Path:
+    """返回用户品牌库目录 data/user/<user_id>/brand_library。"""
+    return _user_root_dir(user_id) / BRAND_LIBRARY_SUBDIR
+
+
+def _user_skill_library_dir(user_id: str) -> Path:
+    """返回用户技能库目录 data/user/<user_id>/skill_library。"""
+    return _user_root_dir(user_id) / SKILL_LIBRARY_SUBDIR
+
+
+def _ensure_user_scaffold(user_id: str) -> Path:
+    """确保用户目录与三个子目录存在。"""
+    user_root = _user_root_dir(user_id)
+    memory_dir = _user_memory_dir(user_id)
+    brand_dir = _user_brand_library_dir(user_id)
+    skill_dir = _user_skill_library_dir(user_id)
+
+    user_root.mkdir(parents=True, exist_ok=True)
+    for sub_dir in (memory_dir, brand_dir, skill_dir):
+        sub_dir.mkdir(parents=True, exist_ok=True)
+    return memory_dir
 
 
 def _validate_file_name(file_name: str) -> str:
@@ -167,7 +198,7 @@ def _validate_file_name(file_name: str) -> str:
 
 
 def _resolve_memory_path(*, user_id: str, file_name: str) -> Path:
-    """把文件名解析为 data/memory/<user_id>/ 下绝对路径，并阻止路径穿越。"""
+    """把文件名解析为 data/user/<user_id>/memory/ 下绝对路径，并阻止路径穿越。"""
     valid_name = _validate_file_name(file_name)
     user_dir = _user_memory_dir(user_id)
     base = user_dir.resolve()
@@ -179,8 +210,7 @@ def _resolve_memory_path(*, user_id: str, file_name: str) -> Path:
 
 def _write_initial_memory_files(*, user_id: str, overwrite: bool) -> list[str]:
     """将代码内置初始内容写入用户记忆目录。"""
-    user_dir = _user_memory_dir(user_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
+    user_dir = _ensure_user_scaffold(user_id)
     written: list[str] = []
     for file_name, initial_content in INITIAL_MEMORY_FILES.items():
         target = user_dir / file_name
@@ -193,7 +223,7 @@ def _write_initial_memory_files(*, user_id: str, overwrite: bool) -> list[str]:
 
 def _clear_memory_dir(*, user_id: str) -> None:
     """清空用户记忆目录。"""
-    user_dir = _user_memory_dir(user_id)
+    user_dir = _ensure_user_scaffold(user_id)
     if not user_dir.exists():
         return
     for item in user_dir.iterdir():
@@ -206,18 +236,16 @@ def _clear_memory_dir(*, user_id: str) -> None:
 async def ensure_memory_files_exist(user_id: str) -> None:
     """
     启动初始化：
-    1. 保证 data/memory/<user_id> 目录存在。
+    1. 保证 data/user/<user_id>/{memory,brand_library,skill_library} 目录存在。
     2. 为缺失的记忆文件写入内置初始内容。
     """
-    user_dir = _user_memory_dir(user_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_user_scaffold(user_id)
     _write_initial_memory_files(user_id=user_id, overwrite=False)
 
 
 async def reset_memory_to_initial_content(user_id: str) -> list[str]:
     """重置用户记忆区：清空目录后使用内置初始内容全量覆盖。"""
-    user_dir = _user_memory_dir(user_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_user_scaffold(user_id)
     _clear_memory_dir(user_id=user_id)
     return _write_initial_memory_files(user_id=user_id, overwrite=True)
 
@@ -236,8 +264,7 @@ def _sort_memory_file_names(existing: list[str]) -> list[str]:
 
 def list_memory_file_names(user_id: str) -> list[str]:
     """列出指定用户目录下可管理的 .md 文件名。"""
-    user_dir = _user_memory_dir(user_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
+    user_dir = _ensure_user_scaffold(user_id)
     existing = sorted(
         [p.name for p in user_dir.glob("*.md") if p.is_file()],
         key=lambda x: x.lower(),
@@ -247,6 +274,7 @@ def list_memory_file_names(user_id: str) -> list[str]:
 
 async def read_memory_file_impl(*, user_id: str, file_name: str) -> str:
     """读取指定用户的记忆文件内容。"""
+    _ensure_user_scaffold(user_id)
     path = _resolve_memory_path(user_id=user_id, file_name=file_name)
     if not path.exists():
         raise FileNotFoundError(f"记忆文件不存在：{file_name}")
@@ -263,6 +291,7 @@ async def write_memory_file_impl(
     allow_system_prompt: bool = False,
 ) -> str:
     """写入指定用户记忆文件，支持 append/overwrite 两种模式。"""
+    _ensure_user_scaffold(user_id)
     path = _resolve_memory_path(user_id=user_id, file_name=file_name)
     if file_name == SYSTEM_PROMPT_FILE and not allow_system_prompt:
         raise PermissionError(f"{SYSTEM_PROMPT_FILE} 仅允许通过人工接口更新")

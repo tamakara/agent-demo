@@ -37,7 +37,7 @@ agent-demo/
 │   └── tools.py
 ├── data/
 │   ├── agent_state.db        # 首次启动自动创建
-│   └── memory/               # 首次启动自动创建
+│   └── user/                 # 首次按 user_id 自动创建用户目录
 ├── static/
 └── docs/
 ```
@@ -64,8 +64,9 @@ python run.py
 首次运行时会自动初始化运行数据：
 
 1. 创建 `data/agent_state.db`
-2. 创建 `data/memory/`
-3. 将 `core/tools.py` 中内置的初始记忆内容写入 `data/memory/*.md`（仅写入缺失文件）
+2. 创建 `data/user/<user_id>/`
+3. 在用户目录下创建 `memory/`、`brand_library/`、`skill_library/`
+4. 将 `core/tools.py` 中内置的初始记忆内容写入 `data/user/<user_id>/memory/*.md`（仅写入缺失文件）
 
 如果需要清空全部运行数据，直接删除 `data/` 文件夹即可，下次启动会自动重新初始化。
 
@@ -100,13 +101,13 @@ python run.py
 
 ## 5.3 系统提示词文件化
 
-- 全局底层规则存放于：`data/memory/系统提示词.md`
+- 全局底层规则存放于：`data/user/<user_id>/memory/系统提示词.md`
 - 聊天流程与刷盘流程共同读取该文件
 - 该文件仅允许人工接口编辑，工具调用禁止写入
 
 ## 5.4 素材库记忆占位策略
 
-- `data/memory/素材库记忆.md` 保留为占位文件
+- `data/user/<user_id>/memory/素材库记忆.md` 保留为占位文件
 - 默认不加载进常驻区
 - 是否调用由系统提示词规则约束（默认不主动调用）
 

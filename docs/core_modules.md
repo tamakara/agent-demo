@@ -5,7 +5,7 @@
 ### 职责
 
 - 定义工具调用 JSON Schema
-- 管理用户记忆文件目录 `data/memory/<user_id>/`
+- 管理用户记忆文件目录 `data/user/<user_id>/memory/`
 - 执行记忆文件读写和时间查询工具
 
 ### 关键约束

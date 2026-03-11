@@ -50,7 +50,7 @@ memory_manager = MemoryManager(db)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """
-    应用生命周期管理（替代已弃用的 on_event）。
+    应用生命周期管理。
 
     启动阶段：
     1) 初始化 SQLite（建库/建表/建索引）。
@@ -365,7 +365,7 @@ async def memory_files(user_id: str = Query(..., min_length=1)) -> MemoryFilesRe
 @app.post("/api/memory/reset")
 async def reset_memory_files(user_id: str = Query(..., min_length=1)) -> dict[str, Any]:
     normalized_user_id = _require_user_id(user_id)
-    # 重置 memory：清空 data/memory 后用代码内置初始内容覆盖重建。
+    # 重置 memory：清空 data/user/<user_id>/memory 后用代码内置初始内容覆盖重建。
     try:
         restored_files = await reset_memory_to_initial_content(normalized_user_id)
     except ValueError as exc:

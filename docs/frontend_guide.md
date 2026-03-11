@@ -68,6 +68,6 @@
 
 记忆文件编辑区操作目标为：
 
-`data/memory/<user_id>/`
+`data/user/<user_id>/memory/`
 
 重置按钮同样只影响当前用户目录，不影响其他用户数据。

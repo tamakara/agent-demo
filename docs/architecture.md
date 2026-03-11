@@ -7,7 +7,7 @@
 - 用户通过 `user_id` 唯一标识（不做身份认证）
 - 所有会话、消息、记忆文件、设置都按 `user_id` 隔离
 - 前端进入页面后必须先输入 `user_id`
-- 不兼容旧数据库结构，不做迁移
+- 不兼容旧版数据库与目录结构，不做迁移
 
 ## 2. 隔离模型
 
@@ -21,9 +21,13 @@
 
 ### 2.2 文件隔离
 
-记忆文件目录改为：
+用户文件目录改为：
 
-`data/memory/<user_id>/*.md`
+`data/user/<user_id>/{memory,brand_library,skill_library}/`
+
+其中记忆文件位于：
+
+`data/user/<user_id>/memory/*.md`
 
 每个用户首次访问时自动初始化模板文件，互不共享。
 
@@ -58,7 +62,7 @@
 ## 5. 持久化结构
 
 - 数据库：`data/agent_state.db`
-- 记忆目录：`data/memory/<user_id>/`
+- 记忆目录：`data/user/<user_id>/memory/`
 
 核心表：
 
@@ -88,6 +92,7 @@
 
 本版本直接切换为多用户 schema，不兼容旧版单用户数据结构：
 
-- 不做数据迁移脚本
+- 不做数据库迁移脚本
+- 不做旧目录迁移脚本
 - 旧 `sessions/messages/app_settings` 数据不会自动映射
 - 推荐清理旧 `data/agent_state.db` 后启动
