@@ -170,23 +170,34 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
     def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
         """列出员工目录树，用于前端目录展示。"""
         self._ensure_user_scaffold(user_id, employee_id)
-        root = user_employee_member_dir(user_id, employee_id)
+        employee_root = user_employee_member_dir(user_id, employee_id)
+        brand_root = user_brand_library_dir(user_id)
+        skill_root = user_skill_library_dir(user_id)
 
         entries: list[dict[str, object]] = [
             {"path": ".", "is_dir": True},
         ]
 
-        for current in sorted(
-            root.rglob("*"),
-            key=lambda p: (len(p.relative_to(root).parts), str(p.relative_to(root)).lower()),
-        ):
-            relative = current.relative_to(root).as_posix()
-            entries.append(
-                {
-                    "path": relative,
-                    "is_dir": current.is_dir(),
-                }
-            )
+        def append_tree(base_dir: Path, prefix: str = "") -> None:
+            """将目录树节点追加到 ``entries``。"""
+            if prefix:
+                entries.append({"path": prefix, "is_dir": True})
+            for current in sorted(
+                base_dir.rglob("*"),
+                key=lambda p: (len(p.relative_to(base_dir).parts), str(p.relative_to(base_dir)).lower()),
+            ):
+                relative = current.relative_to(base_dir).as_posix()
+                path = f"{prefix}/{relative}" if prefix else relative
+                entries.append(
+                    {
+                        "path": path,
+                        "is_dir": current.is_dir(),
+                    }
+                )
+
+        append_tree(employee_root)
+        append_tree(brand_root, "../brand_library")
+        append_tree(skill_root, "../skill_library")
         return entries
 
     def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:

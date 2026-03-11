@@ -6,166 +6,122 @@
   <title>Agent Demo | 数字员工控制台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=20260311-employee-6">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <main class="layout">
-    <div class="workspace-row">
-      <div class="left-column">
+    <div class="workspace-grid">
+      <div class="col-left">
         <section class="panel token-panel">
-          <div class="section-head">
+          <div class="panel-header">
             <h2>Token 仪表盘</h2>
           </div>
           <div class="meter-wrapper">
             <div class="meter">
-              <div id="residentBar" class="meter-segment resident"></div>
-              <div id="dialogueBar" class="meter-segment dialogue"></div>
-              <div id="bufferBar" class="meter-segment buffer"></div>
+              <div id="residentBar" class="meter-bar bg-green"></div>
+              <div id="dialogueBar" class="meter-bar bg-yellow"></div>
+              <div id="bufferBar" class="meter-bar bg-blue"></div>
             </div>
             <div class="meter-legend">
-              <span><i class="dot resident"></i>常驻区</span>
-              <span><i class="dot dialogue"></i>对话区</span>
-              <span><i class="dot buffer"></i>缓冲区</span>
+              <span><i class="dot bg-green"></i>常驻区</span>
+              <span><i class="dot bg-yellow"></i>对话区</span>
+              <span><i class="dot bg-blue"></i>缓冲区</span>
             </div>
           </div>
           <div id="tokenSummary" class="token-summary">正在加载状态...</div>
         </section>
 
-        <section class="panel chat workspace-panel">
-          <div class="section-head flex-between">
-            <div>
-              <h2>对话区</h2>
-            </div>
-            <div class="chat-toolbar">
-              <div class="employee-select-wrap">
-                <select id="employeeSelect"></select>
-              </div>
-              <button id="newEmployeeBtn" class="btn icon-btn" type="button" title="新建员工">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              </button>
-              <button id="reloadEmployeeBtn" class="btn icon-btn" type="button" title="刷新员工">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-              </button>
+        <section class="panel chat-panel fill-height">
+          <div class="panel-header flex-between">
+            <h2>对话区</h2>
+            <div class="toolbar">
+              <select id="employeeSelect" class="input-sm"></select>
+              <button id="newEmployeeBtn" class="btn btn-sm" type="button">新建员工</button>
+              <button id="reloadEmployeeBtn" class="btn btn-sm" type="button">刷新员工</button>
             </div>
           </div>
           <div id="chatLog" class="chat-log" aria-live="polite"></div>
           <form id="chatForm" class="chat-form">
-            <textarea id="messageInput" rows="3" placeholder="输入消息 (Enter 发送, Shift+Enter 换行)..."></textarea>
-            <button type="submit" class="btn primary send-btn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-              发送
-            </button>
+            <textarea id="messageInput" rows="2" placeholder="输入消息 (Enter 发送, Shift+Enter 换行)..."></textarea>
+            <button type="submit" class="btn btn-primary send-btn">发送</button>
           </form>
         </section>
       </div>
 
-      <div class="right-column">
+      <div class="col-right">
         <section class="panel user-panel">
-          <div class="section-head">
+          <div class="panel-header">
             <h2>用户管理</h2>
           </div>
-          <div class="user-panel-actions">
-            <div class="user-id-inline">
-              <span>用户 ID</span>
-              <input id="userIdInput" type="text" maxlength="64" placeholder="请输入用户 ID（字母/数字/._-）">
+          <div class="user-actions">
+            <div class="input-group">
+              <label for="userIdInput">用户 ID</label>
+              <input id="userIdInput" type="text" placeholder="字母/数字/._-">
             </div>
-            <button id="switchUserBtn" class="btn" type="button">应用用户</button>
-            <button id="openSettingsBtn" class="btn primary">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-              设置
-            </button>
-            <div class="user-chip">当前用户：<b id="currentUserId">未设置</b></div>
+            <div class="btn-group">
+              <button id="switchUserBtn" class="btn" type="button">应用用户</button>
+              <button id="openSettingsBtn" class="btn btn-outline" type="button">全局设置</button>
+            </div>
           </div>
         </section>
 
-        <section class="panel memory-files workspace-panel">
-          <div class="section-head flex-between">
-            <div>
-              <h2>员工数据</h2>
-            </div>
-            <div class="chat-toolbar">
-              <button id="resetMemoryBtn" class="btn" type="button" title="重置记忆文件">重置</button>
-              <button id="reloadFilesBtn" class="btn icon-btn" title="刷新目录与文件">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-              </button>
+        <section class="panel file-panel fill-height">
+          <div class="panel-header flex-between">
+            <h2>员工数据</h2>
+            <div class="toolbar">
+              <button id="resetMemoryBtn" class="btn btn-sm text-danger" type="button">重置记忆</button>
+              <button id="reloadFilesBtn" class="btn btn-sm" type="button">刷新目录</button>
             </div>
           </div>
-          <div class="memory-layout">
-            <aside class="memory-tree-panel">
-              <div class="memory-tree-head">
-                <strong>数据目录</strong>
-                <div id="dataDirPath" class="data-dir-path">-</div>
-              </div>
+          <div class="memory-workspace">
+            <aside class="memory-sidebar">
+              <div class="sidebar-header">目录</div>
               <div id="directoryTree" class="directory-tree"></div>
             </aside>
-            <div class="memory-editor-panel">
-              <div class="editor">
-                <div class="editor-header">
-                  <strong id="activeFileName">未选择文件</strong>
-                  <button id="saveFileBtn" class="btn small primary" type="button">保存修改</button>
-                </div>
-                <textarea id="fileContent" placeholder="请选择文件并编辑内容..."></textarea>
+            <main class="memory-editor">
+              <div class="editor-header">
+                <span id="activeFileName" class="font-mono text-sm">未选择文件</span>
+                <button id="saveFileBtn" class="btn btn-primary btn-sm" type="button">保存修改</button>
               </div>
-            </div>
+              <textarea id="fileContent" spellcheck="false" placeholder="请选择文件并编辑内容..."></textarea>
+            </main>
           </div>
         </section>
       </div>
     </div>
+  </main>
 
-    <dialog id="settingsModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>全局设置</h2>
-          <button id="closeSettingsBtn" class="btn icon-btn" type="button" title="关闭">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <p style="margin: 0 0 16px; color: var(--muted); font-size: 0.85rem;">设置会以全局单例写入 SQLite，与数字员工无关。可同时配置 LLM 与上下文窗口总容量。</p>
-          <div class="settings-grid">
-            <label>
-              <span>Model Name</span>
-              <input id="model" type="text" placeholder="agent-advoo">
-              <small>示例：agent-advoo / gemini-2.0-flash</small>
-            </label>
-            <label>
-              <span>API Key</span>
-              <input id="apiKey" type="password" placeholder="sk-...">
-              <small>所有员工共用同一套配置</small>
-            </label>
-            <label class="full-row">
-              <span>Base URL</span>
-              <input id="baseUrl" type="text" placeholder="http://model-gateway.test.api.dotai.internal/v1">
-              <small>推荐格式：http://model-gateway.test.api.dotai.internal/v1 或 https://你的域名/v1</small>
-            </label>
-            <label>
-              <span>Max Tool Rounds</span>
-              <input id="maxToolRounds" type="number" min="1" max="20" value="6">
-              <small>后端限制范围为 1 到 20</small>
-            </label>
-            <label>
-              <span>Total Token Limit</span>
-              <input id="totalTokenLimit" type="number" min="20000" max="2000000" step="1000" value="200000">
-              <small>默认 200000，刷盘在达到此上限时触发</small>
-            </label>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button id="forceFlushBtn" class="btn">手动刷盘</button>
-          <button id="saveConfigBtn" class="btn primary">保存并关闭</button>
+  <dialog id="settingsModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>全局设置</h2>
+        <button id="closeSettingsBtn" class="btn btn-sm" type="button">关闭</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted text-sm mb-4">设置会以全局单例写入，与具体数字员工无关。</p>
+        <div class="grid-form">
+          <label><span>Model Name</span><input id="model" type="text" placeholder="agent-advoo"></label>
+          <label><span>API Key</span><input id="apiKey" type="password" placeholder="sk-..."></label>
+          <label class="full-width"><span>Base URL</span><input id="baseUrl" type="text"></label>
+          <label><span>Max Tool Rounds</span><input id="maxToolRounds" type="number" min="1" max="20"></label>
+          <label><span>Total Token Limit</span><input id="totalTokenLimit" type="number" step="1000"></label>
         </div>
       </div>
-    </dialog>
-  </main>
+      <div class="modal-footer">
+        <button id="forceFlushBtn" class="btn text-danger" type="button">手动刷盘</button>
+        <button id="saveConfigBtn" class="btn btn-primary" type="button">保存配置</button>
+      </div>
+    </div>
+  </dialog>
 
   <template id="chatItemTemplate">
     <div class="chat-item">
-      <div class="chat-meta"></div>
+      <div class="chat-meta text-xs text-muted mb-1"></div>
       <div class="chat-body"></div>
     </div>
   </template>
 
-  <script src="/static/app.js?v=20260311-employee-5" defer></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>
