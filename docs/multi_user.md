@@ -1,103 +1,60 @@
-# 多用户功能说明
+# 多用户隔离说明
 
-## 1. 设计目标
+## 本文范围
 
-实现一个简单的多用户能力，不引入身份认证，仅通过 `user_id` 标识用户，并做到：
+本文只覆盖多用户隔离模型，不覆盖接口字段细节。
 
-1. 对话隔离
-2. 记忆文件隔离
-3. 设置隔离
-4. 刷盘状态隔离
+## 1. 核心原则
 
-## 2. 用户标识规则
+系统不做鉴权，`user_id` 直接作为租户隔离键。
 
-`user_id` 必须满足：
+隔离对象：
+
+1. 会话（sessions）
+2. 消息（messages）
+3. 配置（app_settings）
+4. 记忆文件（data/user/<user_id>）
+5. 刷盘状态与会话锁
+
+## 2. user_id 规则
 
 - 正则：`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
-- 只允许字母、数字、点、下划线、短横线
-- 不能包含路径分隔符或空白 ID
+- 仅允许字母、数字、`.`、`_`、`-`
+- 必须以字母或数字开头
 
-## 3. 存储隔离
+## 3. 数据层隔离
 
 ### 3.1 SQLite
 
-- 会话主键：`(user_id, session_id)`
-- 消息外键：`(user_id, session_id)`
-- 设置主键：`user_id`
+- `sessions` 主键：`(user_id, session_id)`
+- `messages` 通过 `(user_id, session_id)` 关联
+- `app_settings` 主键：`user_id`
 
 ### 3.2 文件系统
 
-用户目录按用户拆分：
+目录：`data/user/<user_id>/`
 
-`data/user/<user_id>/{memory,brand_library,skill_library}/`
+包含：
 
-记忆文件目录为：
+- `memory/`
+- `brand_library/`
+- `skill_library/`
 
-`data/user/<user_id>/memory/`
+## 4. 运行时隔离
 
-用户首次访问时自动写入初始模板文件。
+- 锁粒度为 `(user_id, session_id)`
+- 不同用户同名会话不会互相阻塞
 
-## 4. 接口调用要求
+## 5. 参数传递约束
 
-### 4.1 必须携带 `user_id`
+- 查询接口使用 query `user_id`
+- 写接口优先 body `user_id`
+- 不允许路径参数 `/{user_id}`
 
-- 列表/查询接口：通过 query 传 `user_id`
-- 创建/动作接口：通过 body 或 query 传 `user_id`
+## 6. 验证用例
 
-### 4.2 关键接口示例
-
-获取会话列表：
-
-`GET /api/sessions?user_id=alice`
-
-创建会话：
-
-```json
-POST /api/sessions
-{
-  "user_id": "alice",
-  "session_id": ""
-}
-```
-
-流式聊天：
-
-```json
-POST /api/chat
-{
-  "user_id": "alice",
-  "session_id": "default",
-  "message": "你好",
-  "max_tool_rounds": 6,
-  "llm_config": {
-    "model": "agent-advoo",
-    "api_key": "sk-...",
-    "base_url": "http://model-gateway.test.api.dotai.internal/v1"
-  }
-}
-```
-
-## 5. 前端行为
-
-1. 页面加载即弹窗输入 `user_id`
-2. 未输入合法 `user_id` 不会继续初始化
-3. 顶部展示当前用户
-4. 可通过“切换用户”重新加载对应数据视图
-
-## 6. 不兼容说明
-
-当前实现按需求明确“不做任何旧版本兼容”：
-
-- 未提供数据库迁移脚本
-- 未提供旧目录迁移脚本
-- 旧单用户结构不做自动兼容
-- 建议使用新数据库文件或清理旧 `data/agent_state.db`
-
-## 7. 验证建议
-
-可用两个用户做快速验证：
-
-1. 用户 `alice` 创建 session 并发送消息
-2. 切到用户 `bob`，确认看不到 `alice` 的 session 与消息
-3. 在 `alice` 修改记忆文件，切 `bob` 后确认文件内容不同
-4. 两个用户分别保存不同 `settings`，确认互不覆盖
+1. `alice` 和 `bob` 分别创建同名 `session_id`
+2. 双方消息互不可见
+3. 双方记忆文件修改互不影响
+4. 双方 settings 独立保存
+5. 双方刷盘状态独立变化

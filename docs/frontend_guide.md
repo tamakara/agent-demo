@@ -1,73 +1,79 @@
-# 前端使用说明（`static/`，多用户版）
+# 前端接入指南
 
-## 1. 页面初始化
+## 本文范围
 
-`app.js` 在 `bootstrap()` 开始时会执行 `promptForUserId()`：
+本文只覆盖前端实现关注点：
 
-1. 强制弹窗输入 `user_id`
-2. 为空或不符合规则时要求重输
-3. 输入成功后才会加载会话、配置和记忆文件
+- 请求封装
+- SSE 解析
+- 状态管理
+- 错误处理
 
-校验规则与后端保持一致：
+接口字段详见 `api_reference.md`，SSE 字段详见 `sse_protocol.md`。
 
-- `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
+## 1. 请求封装建议
 
-## 2. 当前用户与切换用户
+建议封装：
 
-页面顶部展示当前用户：
+- `apiGet(path, query)`
+- `apiPost(path, body)`
+- `apiPut(path, body)`
+- `parseEnvelope(response)`
 
-- `当前用户：<user_id>`
+统一解包逻辑：
 
-支持点击“切换用户”按钮：
+1. 先解析 JSON
+2. 优先处理 `error`
+3. 成功返回 `data`
 
-1. 再次弹窗输入 `user_id`
-2. 清空当前聊天显示
-3. 重新加载该用户的 session、设置、记忆文件和状态
+## 2. user_id 传递规则
 
-## 3. API 调用约定
+- 查询接口：query `user_id`
+- 写接口：body `user_id`
+- 特例：`PUT /memory/files/{file_name}` 与 `POST /memory/reset` 继续 query `user_id`
 
-前端统一通过 `buildUserQuery()` 或请求体附带 `user_id`。
+## 3. SSE 解析建议
 
-### query 传递 `user_id`
+1. 按 `\n\n` 切分事件块
+2. 提取 `data:` 行并 JSON 解析
+3. 读取 `envelope.type` 进行分发
 
-- `GET /api/sessions`
-- `GET /api/session-messages`
-- `GET /api/settings`
-- `PUT /api/settings`
-- `GET /api/memory/status`
-- `GET /api/memory/files`
-- `POST /api/memory/reset`
-- `PUT /api/memory/files/{file_name}`
+建议分发器：
 
-### body 传递 `user_id`
+- `meta` -> 系统信息
+- `tool_call` / `tool_result` -> 工具日志
+- `assistant_final` -> 助手消息
+- `memory_status` -> token 面板更新
+- `error` -> 错误面板
+- `done` -> 收尾状态复位
 
-- `POST /api/sessions`
-- `POST /api/chat`
-- `POST /api/memory/flush`
+## 4. 页面状态建议
 
-## 4. 会话与聊天
+最小状态：
 
-会话逻辑与单用户版一致，但数据作用域变为“当前 `user_id`”：
+- `userId`
+- `sessions`
+- `activeSessionId`
+- `files`
+- `activeFile`
+- `isChatRunning`
 
-1. 如果当前用户没有 session，自动创建一个
-2. 切换 session 后仅加载该用户该 session 的历史消息
-3. 聊天和刷盘都作用于当前用户上下文
+## 5. 交互建议
 
-## 5. Token 仪表盘
+1. 页面加载先要求输入 `user_id`
+2. 用户切换时重置 session、文件和聊天视图
+3. 聊天发送时禁用重复提交
+4. 流结束（`done`）后统一刷新 session 列表与 memory 状态
 
-仪表盘显示项新增 `user_id`，并持续轮询：
+## 6. 错误展示建议
 
-- `user id`
-- `session id`
-- token 使用与预算
-- 刷盘状态
+- 网络错误：展示摘要 + 技术详情
+- envelope 错误：优先展示 `error.message`
+- SSE `error`：写入聊天区并结束当前流
 
-轮询间隔保持 `6s`。
+## 7. 联调检查清单
 
-## 6. 记忆文件编辑
-
-记忆文件编辑区操作目标为：
-
-`data/user/<user_id>/memory/`
-
-重置按钮同样只影响当前用户目录，不影响其他用户数据。
+1. 前端已不再请求 `/api/*` 与 `/v1/*`
+2. 所有非流式接口都经过 envelope 解包
+3. SSE 处理不依赖 `eventName`，仅依赖 `type`
+4. 用户切换后数据视图正确隔离

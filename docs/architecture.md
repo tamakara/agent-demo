@@ -1,98 +1,53 @@
-# 架构设计说明（多用户版）
+# 架构总览
 
-## 1. 项目目标
+## 本文范围
 
-`agent-demo` 现在采用“无鉴权、强隔离”的多用户设计：
+本文仅覆盖：
 
-- 用户通过 `user_id` 唯一标识（不做身份认证）
-- 所有会话、消息、记忆文件、设置都按 `user_id` 隔离
-- 前端进入页面后必须先输入 `user_id`
-- 不兼容旧版数据库与目录结构，不做迁移
+- 系统目标
+- 顶层组件关系
+- 核心运行链路
 
-## 2. 隔离模型
+本文不覆盖：
 
-### 2.1 数据库隔离
+- API 字段（见 `api_reference.md`）
+- SSE 事件细节（见 `sse_protocol.md`）
+- 数据表字段（见 `data_model.md`）
 
-- `sessions` 使用复合主键：`(user_id, session_id)`
-- `messages` 通过 `(user_id, session_id)` 外键绑定会话
-- `app_settings` 以 `user_id` 为主键，保存每个用户独立配置
+## 1. 目标
 
-结论：同一个 `session_id` 在不同 `user_id` 下互不冲突。
+项目目标是实现可扩展的多用户记忆智能体服务，强调：
 
-### 2.2 文件隔离
+1. 结构解耦（业务逻辑不依赖框架与具体存储）
+2. 协议统一（JSON/SSE 统一 envelope）
+3. 可替换性（LLM、存储、token 计数器均可替换）
 
-用户文件目录改为：
+## 2. 顶层包结构
 
-`data/user/<user_id>/{memory,brand_library,skill_library}/`
+- `api`：HTTP/SSE 对外协议层
+- `app`：应用编排层
+- `domain`：领域规则层
+- `infra`：基础设施适配层
+- `common`：跨层通用能力
 
-其中记忆文件位于：
+## 3. 关键设计原则
 
-`data/user/<user_id>/memory/*.md`
+1. Presentation 不写核心业务，只做协议转换
+2. Application 只依赖端口接口，不依赖具体实现
+3. Domain 不依赖 FastAPI、SQLite、OpenAI SDK
+4. Infrastructure 负责接入外部系统并实现端口
 
-每个用户首次访问时自动初始化模板文件，互不共享。
+## 4. 主流程（聊天）
 
-### 2.3 运行时隔离
+1. `api/routes.py` 接收请求并校验
+2. `app/use_cases/chat_stream_use_case.py` 编排处理
+3. `app/use_cases/memory_context.py` 调用 domain 规则组装上下文
+4. `infra/llm/openai_gateway.py` 执行模型与工具循环
+5. 结果通过统一 SSE envelope 返回给前端
 
-`MemoryManager` 的并发锁维度改为 `(user_id, session_id)`，避免不同用户同名会话相互影响。
+## 5. 刷盘流程（自动/手动）
 
-## 3. 上下文窗口分区
-
-- 总窗口：`total_token_limit`（默认 `200000`）
-- 系统提示词与记忆文件：`10%`
-- 最近对话：`10%`（摘要 `1%` + 原始最近对话 `9%`）
-- 对话区（含工具与缓冲）：`80%`
-- 刷盘期间新增消息进入 `buffer`
-
-该策略按用户会话独立执行。
-
-## 4. 刷盘流程（每用户每会话）
-
-触发条件：`total_tokens >= total_token_limit` 且当前会话不在刷盘中。
-
-步骤：
-
-1. `is_flushing = true`
-2. 提取该 `user_id + session_id` 的 `dialogue/tool` 记录
-3. 调用模型执行归档
-4. 允许模型工具写入该用户目录下记忆文件
-5. 更新工作台摘要
-6. 清理会话消息并回填 `resident_recent`
-7. `is_flushing = false`
-
-## 5. 持久化结构
-
-- 数据库：`data/agent_state.db`
-- 记忆目录：`data/user/<user_id>/memory/`
-
-核心表：
-
-- `sessions(user_id, session_id, workbench_summary, is_flushing, created_at, updated_at)`
-- `messages(id, user_id, session_id, role, content, zone, token_count, created_at)`
-- `app_settings(user_id, llm_model, llm_api_key, llm_base_url, llm_max_tool_rounds, context_total_token_limit, updated_at)`
-
-## 6. SSE 协议
-
-`POST /api/chat` 使用 `text/event-stream`，首个 `meta` 事件包含：
-
-- `user_id`
-- `session_id`
-- `model`
-- `max_tool_rounds`
-
-常见事件顺序：
-
-1. `meta`
-2. `tool_call`（可多次）
-3. `tool_result`（可多次）
-4. `assistant_final`
-5. `memory_status`
-6. `done`
-
-## 7. 不兼容说明
-
-本版本直接切换为多用户 schema，不兼容旧版单用户数据结构：
-
-- 不做数据库迁移脚本
-- 不做旧目录迁移脚本
-- 旧 `sessions/messages/app_settings` 数据不会自动映射
-- 推荐清理旧 `data/agent_state.db` 后启动
+1. 达到阈值后标记 `is_flushing=true`
+2. 归档 `dialogue/tool` 并更新长期记忆
+3. 回填 `resident_recent`、更新摘要
+4. 结束后恢复 `is_flushing=false`

@@ -1,51 +1,69 @@
-# 接口参考文档（多用户版）
+# HTTP API 参考
 
-## 总则
+## 本文范围
 
-1. `user_id` 是唯一用户标识，必填。  
-2. 不做鉴权，后端按 `user_id` 直接隔离数据。  
-3. 同名 `session_id` 可在不同用户下并存。  
+本文仅覆盖 HTTP 接口：
 
-`user_id` 规则：
+- 路径
+- 参数
+- 请求体
+- 响应字段
+- 错误格式
 
-- 允许：字母、数字、`.`、`_`、`-`
-- 长度：1 到 64
-- 必须以字母或数字开头
+SSE 事件协议请看 `sse_protocol.md`。
 
----
+## 1. 全局规则
 
-## 1. `GET /api/sessions`
+1. 路由无前缀（不使用 `/api`、`/v1`）
+2. 查询接口使用 `query user_id`
+3. 写接口优先使用 `body user_id`
+4. `PUT /memory/files/{file_name}` 与 `POST /memory/reset` 使用 `query user_id`
 
-按用户返回会话列表（最近更新时间倒序）。
+`user_id` 校验：`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
 
-### 查询参数
+## 2. 统一响应
 
-- `user_id`（必填）
-
-### 响应示例
+### 2.1 成功
 
 ```json
 {
-  "sessions": [
-    {
-      "user_id": "alice",
-      "session_id": "session-20260310-101530-a1b2c3",
-      "is_flushing": false,
-      "created_at": "2026-03-10 10:15:30",
-      "updated_at": "2026-03-10 10:16:20",
-      "message_count": 4
-    }
-  ]
+  "request_id": "...",
+  "ts": "2026-03-11T15:20:00.000000Z",
+  "data": {}
 }
 ```
 
----
+### 2.2 失败
 
-## 2. `POST /api/sessions`
+```json
+{
+  "request_id": "...",
+  "ts": "2026-03-11T15:20:00.000000Z",
+  "error": {
+    "code": "validation_error",
+    "message": "...",
+    "details": {}
+  }
+}
+```
 
-创建用户会话。
+## 3. 接口列表
 
-### 请求体
+### 3.1 会话
+
+#### `GET /sessions`
+
+Query:
+
+- `user_id` 必填
+
+Data:
+
+- `sessions[]`
+
+#### `POST /sessions`
+
+Body:
 
 ```json
 {
@@ -54,206 +72,91 @@
 }
 ```
 
-说明：
+Data:
 
-1. `session_id` 可为空。
-2. 为空时后端自动生成：`session-时间戳-随机后缀`。
+- `created`
+- `session`
 
-### 响应示例
+#### `GET /session-messages`
 
-```json
-{
-  "created": true,
-  "session": {
-    "user_id": "alice",
-    "session_id": "session-20260310-101530-a1b2c3",
-    "is_flushing": false,
-    "created_at": "2026-03-10 10:15:30",
-    "updated_at": "2026-03-10 10:15:30",
-    "message_count": 0
-  }
-}
-```
+Query:
 
----
+- `user_id` 必填
+- `session_id` 必填
+- `limit` 可选（`1..5000`）
 
-## 3. `GET /api/session-messages`
+Data:
 
-按时间顺序读取某用户某会话历史消息。
+- `user_id`
+- `session_id`
+- `messages[]`
 
-### 查询参数
+### 3.2 聊天
 
-- `user_id`（必填）
-- `session_id`（必填）
-- `limit`（可选，默认 `500`，范围 `1..5000`）
+#### `POST /chat/stream`
 
-### 响应示例
-
-```json
-{
-  "user_id": "alice",
-  "session_id": "session-20260310-101530-a1b2c3",
-  "messages": [
-    {
-      "id": 1,
-      "user_id": "alice",
-      "session_id": "session-20260310-101530-a1b2c3",
-      "role": "user",
-      "content": "你好",
-      "zone": "dialogue",
-      "created_at": "2026-03-10 10:15:35"
-    }
-  ]
-}
-```
-
----
-
-## 4. `GET /api/settings`
-
-读取用户级 LLM 与上下文设置。
-
-### 查询参数
-
-- `user_id`（必填）
-
-### 响应示例
-
-```json
-{
-  "model": "agent-advoo",
-  "api_key": "sk-...",
-  "base_url": "http://model-gateway.test.api.dotai.internal/v1",
-  "max_tool_rounds": 6,
-  "total_token_limit": 200000
-}
-```
-
----
-
-## 5. `PUT /api/settings`
-
-更新用户级 LLM 与上下文设置。
-
-### 查询参数
-
-- `user_id`（必填）
-
-### 请求体
-
-```json
-{
-  "model": "agent-advoo",
-  "api_key": "sk-...",
-  "base_url": "http://model-gateway.test.api.dotai.internal/v1",
-  "max_tool_rounds": 6,
-  "total_token_limit": 200000
-}
-```
-
-约束：
-
-1. `max_tool_rounds` 范围 `1..20`
-2. `total_token_limit` 范围 `20000..2000000`
-3. `base_url` 传 `null` 时回退默认值
-
----
-
-## 6. `POST /api/chat`
-
-发起流式聊天（SSE）。
-
-### 请求体
-
-```json
-{
-  "user_id": "alice",
-  "session_id": "session-20260310-101530-a1b2c3",
-  "message": "帮我记录偏好：以后回答简洁一些",
-  "max_tool_rounds": 6,
-  "llm_config": {
-    "model": "agent-advoo",
-    "api_key": "sk-...",
-    "base_url": "http://model-gateway.test.api.dotai.internal/v1"
-  }
-}
-```
-
-### 响应
-
-- `Content-Type: text/event-stream`
-- 事件类型：`meta` / `tool_call` / `tool_result` / `assistant_final` / `memory_status` / `done` / `error`
-
-首个 `meta` 事件包含 `user_id` 和 `session_id`。
-
----
-
-## 7. `GET /api/memory/status`
-
-读取用户会话上下文窗口状态。
-
-### 查询参数
-
-- `user_id`（必填）
-- `session_id`（可选，默认 `default`）
-- `model`（可选，默认 `agent-advoo`）
-
-### 响应示例
+Body:
 
 ```json
 {
   "user_id": "alice",
   "session_id": "default",
-  "total_tokens": 25312,
-  "resident_tokens": 11442,
-  "dialogue_tokens": 13455,
-  "buffer_tokens": 415,
-  "is_flushing": false,
-  "thresholds": {
-    "system_prompt_limit": 20000,
-    "summary_limit": 2000,
-    "recent_raw_limit": 18000,
-    "recent_total_limit": 20000,
-    "resident_limit": 40000,
-    "dialogue_limit": 160000,
-    "total_limit": 200000,
-    "flush_trigger": 200000
-  }
+  "message": "你好",
+  "max_tool_rounds": 6
 }
 ```
 
----
+说明：
 
-## 8. `GET /api/memory/files`
+- 返回 `text/event-stream`
+- SSE 事件包详见 `sse_protocol.md`
 
-读取用户记忆文件列表与内容。
+### 3.3 配置
 
-### 查询参数
+#### `GET /settings`
 
-- `user_id`（必填）
+Query:
 
-### 响应示例
+- `user_id` 必填
+
+Data:
+
+- `model`
+- `api_key`
+- `base_url`
+- `max_tool_rounds`
+- `total_token_limit`
+
+#### `PUT /settings`
+
+Body:
 
 ```json
 {
-  "files": [
-    { "file_name": "人格记忆.md", "content": "..." },
-    { "file_name": "系统提示词.md", "content": "..." }
-  ]
+  "user_id": "alice",
+  "model": "agent-advoo",
+  "api_key": "sk-...",
+  "base_url": "http://model-gateway.test.api.dotai.internal/v1",
+  "max_tool_rounds": 6,
+  "total_token_limit": 200000
 }
 ```
 
----
+### 3.4 记忆
 
-## 9. `PUT /api/memory/files/{file_name}`
+#### `GET /memory/files`
 
-人工编辑用户记忆文件（包含 `系统提示词.md`）。
+Query:
 
-### 查询参数
+- `user_id` 必填
 
-- `user_id`（必填）
+#### `PUT /memory/files/{file_name}`
 
-### 请求体
+Query:
+
+- `user_id` 必填
+
+Body:
 
 ```json
 {
@@ -262,67 +165,39 @@
 }
 ```
 
-`mode` 可选值：`overwrite` / `append`
+#### `POST /memory/reset`
 
----
+Query:
 
-## 10. `POST /api/memory/reset`
+- `user_id` 必填
 
-重置用户记忆目录（清空后按模板重建）。
+#### `GET /memory/status`
 
-### 查询参数
+Query:
 
-- `user_id`（必填）
+- `user_id` 必填
+- `session_id` 可选（默认 `default`）
+- `model` 可选
 
-### 响应示例
+#### `POST /memory/flush`
 
-```json
-{
-  "ok": true,
-  "restored_files": ["系统提示词.md", "通用记忆.md"],
-  "files": [
-    { "file_name": "系统提示词.md", "content": "..." },
-    { "file_name": "通用记忆.md", "content": "..." }
-  ]
-}
-```
-
----
-
-## 11. `POST /api/memory/flush`
-
-手动触发用户会话刷盘。
-
-### 请求体
+Body:
 
 ```json
 {
   "user_id": "alice",
   "session_id": "default",
-  "max_tool_rounds": 6,
-  "llm_config": {
-    "model": "agent-advoo",
-    "api_key": "sk-...",
-    "base_url": "http://model-gateway.test.api.dotai.internal/v1"
-  }
+  "max_tool_rounds": 6
 }
 ```
 
-### 响应示例
+## 4. 错误码
 
-```json
-{
-  "accepted": true,
-  "user_id": "alice",
-  "session_id": "default",
-  "is_flushing": true
-}
-```
+- `validation_error`
+- `not_found`
+- `http_error`
+- `internal_error`
 
----
+## 5. 兼容说明
 
-## 错误码
-
-- `400`：参数非法（例如 `user_id` / 文件名非法）
-- `404`：目标记忆文件不存在
-- `500`：服务内部错误
+旧路径 `/api/*` 与 `/v1/*` 已废弃。

@@ -1,98 +1,57 @@
-# 核心模块说明（多用户版）
+# 模块职责清单
 
-## 1. `core/tools.py`
+## 本文范围
 
-### 职责
+本文仅回答“模块做什么”，不描述 API 字段、不描述数据库字段。
 
-- 定义工具调用 JSON Schema
-- 管理用户记忆文件目录 `data/user/<user_id>/memory/`
-- 执行记忆文件读写和时间查询工具
+## 1. api
 
-### 关键约束
+- `main.py`：创建 FastAPI 应用、生命周期与全局异常处理
+- `api/routes.py`：路由入口与协议转换
+- `api/sse.py`：SSE envelope 构建
+- `api/dto/requests.py`：请求模型与参数校验
+- `api/dependencies.py`：依赖装配（容器）
 
-- `user_id` 必须匹配：`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
-- 仅允许访问用户目录下 `.md` 文件
-- 默认禁止工具写入 `系统提示词.md`
-- 用户首次访问时自动初始化模板记忆文件
+## 2. app
 
-### 主要函数
+- `app/ports/repositories.py`：端口定义
+- `app/services/session_service.py`：会话相关业务
+- `app/services/settings_service.py`：配置相关业务
+- `app/services/memory_file_service.py`：记忆文件业务
+- `app/use_cases/chat_stream_use_case.py`：聊天用例
+- `app/use_cases/flush_use_case.py`：刷盘用例
+- `app/use_cases/memory_context.py`：上下文与刷盘核心编排
+- `app/use_cases/memory_status_use_case.py`：状态查询用例
 
-- `ensure_memory_files_exist(user_id)`
-- `list_memory_file_names(user_id)`
-- `read_memory_file_impl(user_id=..., file_name=...)`
-- `write_memory_file_impl(user_id=..., file_name=..., ...)`
-- `reset_memory_to_initial_content(user_id)`
-- `execute_tool_call(tool_name, arguments, user_id=...)`
+## 3. domain
 
-## 2. `core/agent.py`
+- `domain/models.py`：领域模型
+- `domain/window_policy.py`：预算计算
+- `domain/prompt_composer.py`：提示词与裁剪逻辑
+- `domain/tool_protocol.py`：工具事件协议处理
 
-### 职责
+## 4. infra
 
-- 调用 OpenAI 兼容 `chat/completions`
-- 执行工具循环
-- 记录并透传工具事件
+- `infra/sqlite/repository.py`：SQLite 仓储适配器
+- `infra/memory/storage_layout.py`：用户目录与路径安全
+- `infra/memory/file_repository.py`：记忆文件仓储适配器
+- `infra/llm/request_builder.py`：LLM 请求构建
+- `infra/llm/tool_loop.py`：工具循环执行
+- `infra/llm/openai_gateway.py`：OpenAI 兼容网关
+- `infra/llm/tiktoken_counter.py`：token 计数适配器
+- `infra/tools/tool_registry.py`：工具 schema 与参数解析
+- `infra/tools/builtin_tools.py`：内置工具执行器
+- `infra/tools/clock.py`：系统时间适配器
 
-### 关键变更
+## 5. common
 
-- `run_agent_with_tools` 新增 `user_id` 参数
-- 工具调用执行时透传 `user_id` 到 `execute_tool_call`
+- `common/errors.py`：统一错误类型
+- `common/response.py`：统一响应 envelope
+- `common/ids.py`：user_id 与 session_id 规则
+- `common/time_utils.py`：时间工具
 
-### 主要对象
+## 6. 扩展入口
 
-- `AgentRunResult`
-- `run_agent_with_tools(user_id, messages, llm_config, max_tool_rounds, on_event=None, refresh_system_message=None)`
-
-## 3. `core/db.py`
-
-### 职责
-
-- 初始化 SQLite 与索引
-- 管理会话、消息、用户设置
-- 提供消息分区查询、token 统计、会话状态更新
-
-### 表结构
-
-- `sessions`：`PRIMARY KEY(user_id, session_id)`
-- `messages`：含 `(user_id, session_id)` 外键
-- `app_settings`：`PRIMARY KEY(user_id)`
-
-### 关键约束
-
-- 所有读写都要求 `user_id`
-- 会话隔离键为 `(user_id, session_id)`
-- LLM 设置按用户隔离存储
-
-## 4. `core/memory_manager.py`
-
-### 职责
-
-- 管理上下文分区与 token 预算
-- 组装常驻区和对话区消息
-- 执行自动/手动刷盘流程
-
-### 关键变更
-
-- 并发锁维度从 `session_id` 升级为 `(user_id, session_id)`
-- 全部公开方法增加 `user_id`
-- 记忆文件读写按 `user_id` 隔离
-
-### 主要方法
-
-- `process_chat(user_id, session_id, user_message, llm_config, max_tool_rounds, on_event=None)`
-- `get_status(user_id, session_id, model="agent-advoo")`
-- `try_start_manual_flush(user_id, session_id)`
-- `flush_session_memory(user_id, session_id, llm_config, max_tool_rounds)`
-
-## 5. `main.py`
-
-### 职责
-
-- FastAPI 路由入口
-- SSE 事件输出
-- 参数校验和错误转换
-
-### 关键变更
-
-- 所有业务接口显式要求 `user_id`（query 或 body）
-- 聊天首帧 `meta` 返回 `user_id + session_id`
-- 内存文件接口按需初始化用户目录
+1. 新模型网关：实现 `LLMGatewayPort`
+2. 新存储后端：实现仓储端口并在 `api/dependencies.py` 切换装配
+3. 新工具：在 `infra/tools` 注册 schema + 执行逻辑

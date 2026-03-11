@@ -1,4 +1,4 @@
-"""基于 SQLite 的多用户会话与消息分区持久化实现。"""
+"""SQLite 仓储实现与数据访问逻辑。"""
 
 from __future__ import annotations
 
@@ -7,13 +7,16 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from app.ports.repositories import MessageRepositoryPort, SessionRepositoryPort, UserSettingsRepositoryPort
+from domain.models import GlobalSettings
+from domain.window_policy import DEFAULT_TOTAL_LIMIT
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "agent_state.db"
+
+DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "agent_state.db"
 DEFAULT_LLM_MODEL = "agent-advoo"
 DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
 DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 DEFAULT_LLM_MAX_TOOL_ROUNDS = 6
-DEFAULT_TOTAL_TOKEN_LIMIT = 200_000
 GLOBAL_LLM_SELECT_SQL = """
 SELECT
     llm_model,
@@ -31,38 +34,40 @@ WHERE user_id = ? AND session_id = ?;
 """
 
 
-class SQLiteStore:
-    """演示项目使用的 sqlite3 异步安全薄封装。"""
+class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSettingsRepositoryPort):
+    """SQLite 的仓储适配器。"""
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
+        """初始化数据库路径与连接状态。"""
         self.db_path = Path(db_path)
         self._conn: sqlite3.Connection | None = None
         self._lock = asyncio.Lock()
 
     def _ensure_conn(self) -> sqlite3.Connection:
-        """确保连接已初始化。"""
+        """返回已初始化连接；若未初始化则抛错。"""
         if self._conn is None:
             raise RuntimeError("数据库尚未初始化")
         return self._conn
 
     @staticmethod
     def _touch_session(conn: sqlite3.Connection, user_id: str, session_id: str) -> None:
-        """刷新会话 updated_at，用于消息写入/删除后的会话排序。"""
+        """更新会话 ``updated_at``，用于会话排序。"""
         conn.execute(TOUCH_SESSION_SQL, (user_id, session_id))
 
     @staticmethod
     def _fetch_global_llm_row(conn: sqlite3.Connection, user_id: str) -> sqlite3.Row | None:
-        """读取 app_settings 中指定用户的配置行。"""
+        """读取用户全局 LLM 配置行。"""
         return conn.execute(GLOBAL_LLM_SELECT_SQL, (user_id,)).fetchone()
 
     async def initialize(self) -> None:
+        """初始化 SQLite 连接并确保表结构存在。"""
         async with self._lock:
             if self._conn is not None:
                 return
-            # data 目录在首次启动时按需创建，不要求仓库预置。
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
+            # 使用 WAL 提高并发读写能力，并显式开启外键约束。
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA foreign_keys=ON;")
             conn.execute(
@@ -125,7 +130,7 @@ class SQLiteStore:
 
     @staticmethod
     def _ensure_global_llm_config_seed(conn: sqlite3.Connection, user_id: str) -> None:
-        """初始化指定用户的 LLM 配置默认值。"""
+        """在配置缺失时插入默认 LLM 参数。"""
         existing = conn.execute(
             "SELECT 1 FROM app_settings WHERE user_id = ?;",
             (user_id,),
@@ -150,11 +155,12 @@ class SQLiteStore:
                 DEFAULT_LLM_API_KEY,
                 DEFAULT_LLM_BASE_URL,
                 DEFAULT_LLM_MAX_TOOL_ROUNDS,
-                DEFAULT_TOTAL_TOKEN_LIMIT,
+                DEFAULT_TOTAL_LIMIT,
             ),
         )
 
     async def close(self) -> None:
+        """关闭数据库连接。"""
         async with self._lock:
             if self._conn is None:
                 return
@@ -162,6 +168,7 @@ class SQLiteStore:
             self._conn = None
 
     async def ensure_session(self, user_id: str, session_id: str) -> None:
+        """确保会话存在，不存在则创建。"""
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
@@ -174,10 +181,12 @@ class SQLiteStore:
             conn.commit()
 
     async def create_session(self, user_id: str, session_id: str) -> dict[str, Any]:
+        """创建会话并返回会话对象。"""
         await self.ensure_session(user_id, session_id)
         return await self.get_session(user_id, session_id)
 
     async def get_session(self, user_id: str, session_id: str) -> dict[str, Any]:
+        """读取会话对象。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -206,7 +215,8 @@ class SQLiteStore:
                 "updated_at": row["updated_at"],
             }
 
-    async def get_global_llm_config(self, user_id: str) -> dict[str, Any]:
+    async def get_global_settings(self, user_id: str) -> GlobalSettings:
+        """读取用户全局设置；缺失时自动补种默认值。"""
         async with self._lock:
             conn = self._ensure_conn()
             row = self._fetch_global_llm_row(conn, user_id)
@@ -219,24 +229,17 @@ class SQLiteStore:
             model = str(row["llm_model"] or "").strip() or DEFAULT_LLM_MODEL
             api_key = str(row["llm_api_key"] or "").strip() or DEFAULT_LLM_API_KEY
             base_url = str(row["llm_base_url"] or "").strip() or DEFAULT_LLM_BASE_URL
-            return {
-                "model": model,
-                "api_key": api_key,
-                "base_url": base_url,
-                "max_tool_rounds": int(row["llm_max_tool_rounds"] or DEFAULT_LLM_MAX_TOOL_ROUNDS),
-                "total_token_limit": int(row["context_total_token_limit"] or DEFAULT_TOTAL_TOKEN_LIMIT),
-            }
+            return GlobalSettings(
+                user_id=user_id,
+                model=model,
+                api_key=api_key,
+                base_url=base_url,
+                max_tool_rounds=int(row["llm_max_tool_rounds"] or DEFAULT_LLM_MAX_TOOL_ROUNDS),
+                total_token_limit=int(row["context_total_token_limit"] or DEFAULT_TOTAL_LIMIT),
+            )
 
-    async def update_global_llm_config(
-        self,
-        *,
-        user_id: str,
-        model: str,
-        api_key: str,
-        base_url: str | None,
-        max_tool_rounds: int,
-        total_token_limit: int,
-    ) -> None:
+    async def update_global_settings(self, settings: GlobalSettings) -> GlobalSettings:
+        """写入用户全局设置并返回最新结果。"""
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
@@ -259,17 +262,19 @@ class SQLiteStore:
                     updated_at = CURRENT_TIMESTAMP;
                 """,
                 (
-                    user_id,
-                    model,
-                    api_key,
-                    base_url or "",
-                    int(max_tool_rounds),
-                    int(total_token_limit),
+                    settings.user_id,
+                    settings.model,
+                    settings.api_key,
+                    settings.base_url or "",
+                    int(settings.max_tool_rounds),
+                    int(settings.total_token_limit),
                 ),
             )
             conn.commit()
+        return await self.get_global_settings(settings.user_id)
 
     async def set_is_flushing(self, user_id: str, session_id: str, value: bool) -> None:
+        """更新会话 ``is_flushing`` 状态。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -284,6 +289,7 @@ class SQLiteStore:
             conn.commit()
 
     async def update_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
+        """更新会话的工作台摘要文本。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -306,6 +312,7 @@ class SQLiteStore:
         zone: str,
         token_count: int,
     ) -> int:
+        """写入一条消息并返回新消息 ID。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -330,6 +337,7 @@ class SQLiteStore:
         ascending: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        """按过滤条件查询消息列表。"""
         await self.ensure_session(user_id, session_id)
         query = (
             "SELECT id, user_id, session_id, role, content, zone, token_count, created_at "
@@ -337,6 +345,7 @@ class SQLiteStore:
         )
         params: list[Any] = [user_id, session_id]
 
+        # 通过参数化占位符拼接 IN 子句，避免 SQL 注入并兼容动态过滤。
         if zones:
             placeholders = ",".join(["?"] * len(zones))
             query += f" AND zone IN ({placeholders})"
@@ -358,6 +367,7 @@ class SQLiteStore:
             return [dict(row) for row in rows]
 
     async def sum_tokens_by_zone(self, user_id: str, session_id: str) -> dict[str, int]:
+        """按分区汇总 token 消耗。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -370,10 +380,10 @@ class SQLiteStore:
                 """,
                 (user_id, session_id),
             ).fetchall()
-            result = {str(row["zone"]): int(row["total_tokens"]) for row in rows}
-            return result
+            return {str(row["zone"]): int(row["total_tokens"]) for row in rows}
 
     async def clear_messages(self, user_id: str, session_id: str) -> None:
+        """清空指定会话的所有消息。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -385,6 +395,7 @@ class SQLiteStore:
             conn.commit()
 
     async def delete_messages_by_zones(self, user_id: str, session_id: str, zones: Iterable[str]) -> None:
+        """按分区删除消息。"""
         await self.ensure_session(user_id, session_id)
         zones = list(zones)
         if not zones:
@@ -401,6 +412,7 @@ class SQLiteStore:
             conn.commit()
 
     async def list_sessions(self, user_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """查询用户会话列表并附带消息总数。"""
         async with self._lock:
             conn = self._ensure_conn()
             rows = conn.execute(
@@ -424,3 +436,4 @@ class SQLiteStore:
                 (user_id, limit),
             ).fetchall()
             return [dict(row) for row in rows]
+
