@@ -165,6 +165,26 @@ select {
   padding: 10px 14px; margin: 0;
   font-size: 0.95rem; white-space: pre-wrap; font-family: inherit;
 }
+.chat-image-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 0;
+  padding: 8px;
+  max-width: 460px;
+}
+.chat-image-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+}
+.chat-image-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
 
 .chat-form { display: flex; gap: 8px; position: relative; }
 .chat-form textarea { padding-right: 80px; resize: none; }
@@ -188,6 +208,36 @@ select {
 .memory-editor { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;}
 .editor-header { padding: 8px 12px; background: var(--bg-app); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
 #fileContent { flex: 1; border: none; border-radius: 0; padding: 12px; font-family: "Fira Code", monospace; font-size: 0.9rem; background: #fafafa; resize: none; outline: none;}
+.file-image-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: #fafafa;
+}
+.file-image-preview[hidden] {
+  display: none !important;
+}
+.file-image-preview img {
+  max-width: 100%;
+  max-height: calc(100% - 30px);
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.file-image-caption {
+  width: 100%;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: "Fira Code", monospace;
+  word-break: break-all;
+}
 
 /* 模态框 */
 .modal { border: none; border-radius: var(--radius-lg); padding: 0; margin: auto; max-width: 500px; width: 90%; box-shadow: var(--shadow-md); }

@@ -116,6 +116,10 @@ class MemoryFileRepositoryPort(Protocol):
         """返回记忆文件相对员工目录路径。"""
         ...
 
+    def resolve_data_file_path(self, user_id: str, employee_id: str, data_path: str) -> str:
+        """根据目录树路径解析真实数据文件绝对路径。"""
+        ...
+
     async def read_memory_file(self, *, user_id: str, employee_id: str, file_name: str) -> str:
         """读取指定数字员工记忆文件内容。"""
         ...

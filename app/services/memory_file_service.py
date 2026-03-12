@@ -47,6 +47,10 @@ class MemoryFileService:
         """返回员工数据目录绝对路径。"""
         return self.memory_repo.employee_data_root(user_id, employee_id)
 
+    def resolve_data_file_path(self, user_id: str, employee_id: str, data_path: str) -> str:
+        """根据目录树路径解析数据文件绝对路径。"""
+        return self.memory_repo.resolve_data_file_path(user_id, employee_id, data_path)
+
     async def reset_files(self, user_id: str, employee_id: str) -> tuple[list[str], list[MemoryFileEntry]]:
         """重置员工记忆文件并返回恢复文件名及最新文件列表。"""
         restored = await self.memory_repo.reset_memory_to_initial_content(user_id, employee_id)

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import mimetypes
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from api.dependencies import AppContainer
 from api.requests import (
@@ -27,6 +28,7 @@ from domain.models import LLMConfig
 
 
 FIXED_MAX_TOOL_ROUNDS = 64
+PREVIEWABLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".bmp", ".svg"}
 
 
 def _new_request_id() -> str:
@@ -364,6 +366,37 @@ def create_router(container: AppContainer) -> APIRouter:
                     },
                 )
             )
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
+    @router.get("/memory/file-preview")
+    async def memory_file_preview(
+        path: str = Query(..., min_length=1),
+        user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
+    ) -> FileResponse:
+        """预览员工数据目录中的图片文件。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            normalized_employee_id, _ = await _resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
+            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
+            abs_path = container.memory_file_service.resolve_data_file_path(
+                normalized_user_id,
+                normalized_employee_id,
+                path,
+            )
+            suffix = abs_path.rsplit(".", 1)[-1].lower() if "." in abs_path else ""
+            normalized_suffix = f".{suffix}" if suffix else ""
+            if normalized_suffix not in PREVIEWABLE_IMAGE_SUFFIXES:
+                raise ValidationError(f"仅支持图片预览：{path}")
+            media_type = mimetypes.guess_type(abs_path)[0] or "application/octet-stream"
+            return FileResponse(path=abs_path, media_type=media_type)
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 

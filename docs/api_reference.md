@@ -180,6 +180,23 @@ Data:
 - `tree[]`：目录树（`path` + `is_dir`）
 - `files[]`：可编辑记忆文件（`file_name`、`relative_path`、`content`）
 
+#### `GET /memory/file-preview`
+
+用途：
+
+- 预览员工数据目录中的图片文件（用于前端目录点击后的图片展示）。
+
+Query:
+
+- `user_id` 必填
+- `employee_id` 可选（默认 `1`）
+- `path` 必填（来自 `tree.path`，例如 `/employee/workspace/a.png`）
+
+响应：
+
+- 直接返回图片文件流（`image/png`、`image/jpeg`、`image/webp` 等），
+  不使用统一 JSON envelope。
+
 #### `PUT /memory/files/{file_name}`
 
 Query:

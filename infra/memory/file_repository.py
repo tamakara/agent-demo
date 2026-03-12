@@ -78,6 +78,18 @@ VISIBLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp"}
 class FileMemoryRepository(MemoryFileRepositoryPort):
     """基于本地文件系统的记忆仓储。"""
 
+    @staticmethod
+    def _normalize_tree_path(data_path: str) -> str:
+        """规范化目录树路径格式。"""
+        normalized = str(data_path or "").strip()
+        if not normalized:
+            raise ValidationError("data_path 不能为空")
+        if not normalized.startswith("/"):
+            raise ValidationError("data_path 必须以 / 开头")
+        if normalized == "/":
+            raise ValidationError("data_path 不能是根目录")
+        return normalized
+
     def _ensure_user_scaffold(self, user_id: str, employee_id: str) -> None:
         """确保用户目录骨架与指定员工目录存在。"""
         user_root = user_root_dir(user_id)
@@ -228,6 +240,32 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         """返回用户数据目录绝对路径。"""
         self._ensure_user_scaffold(user_id, employee_id)
         return str(user_root_dir(user_id).resolve())
+
+    def resolve_data_file_path(self, user_id: str, employee_id: str = EMPLOYEE_ONE, data_path: str = "") -> str:
+        """将目录树路径解析为真实绝对文件路径。"""
+        self._ensure_user_scaffold(user_id, employee_id)
+        normalized_tree_path = self._normalize_tree_path(data_path)
+        path_parts = [part for part in normalized_tree_path.split("/") if part]
+        if not path_parts:
+            raise ValidationError("data_path 非法")
+
+        root_name = path_parts[0]
+        tail_parts = path_parts[1:]
+        if root_name == "employee":
+            base_dir = user_employee_member_dir(user_id, employee_id).resolve()
+        elif root_name == "brand_library":
+            base_dir = user_brand_library_dir(user_id).resolve()
+        elif root_name == "skill_library":
+            base_dir = user_skill_library_dir(user_id).resolve()
+        else:
+            raise ValidationError(f"不支持的数据目录：/{root_name}")
+
+        target = (base_dir.joinpath(*tail_parts)).resolve()
+        if target != base_dir and base_dir not in target.parents:
+            raise ValidationError("data_path 目录非法")
+        if not target.exists() or not target.is_file():
+            raise NotFoundError(f"文件不存在：{normalized_tree_path}")
+        return str(target)
 
     @staticmethod
     def memory_relative_path(file_name: str) -> str:

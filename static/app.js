@@ -4,6 +4,7 @@ const CONFIG = {
 };
 const TOKENIZER_OPTIONS = ["gemini-3-flash", "gemini-3.1-pro"];
 const DEFAULT_TOKENIZER_MODEL = "gemini-3-flash";
+const IMAGE_FILE_EXT_PATTERN = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
 
 const state = {
   userId: localStorage.getItem(CONFIG.storageKey) || "",
@@ -25,6 +26,7 @@ const els = {
   empSelect: $("employeeSelect"), btnNewEmp: $("newEmployeeBtn"), btnReloadEmp: $("reloadEmployeeBtn"),
   btnResetMemory: $("resetMemoryBtn"), btnReloadFiles: $("reloadFilesBtn"),
   tree: $("directoryTree"), fileContent: $("fileContent"), fileName: $("activeFileName"), btnSaveFile: $("saveFileBtn"),
+  fileImagePreview: $("fileImagePreview"), fileImagePreviewImg: $("fileImagePreviewImg"), fileImagePreviewPath: $("fileImagePreviewPath"),
   modal: $("settingsModal"), btnSettings: $("openSettingsBtn"),
   tokenSum: $("tokenSummary"), resBar: $("residentBar"), diaBar: $("dialogueBar"), bufBar: $("bufferBar"),
   btnForceFlush: $("forceFlushBtn")
@@ -43,6 +45,16 @@ const findEditableFile = (path) => {
   if (!normalized) return null;
   return state.files.find(f => f.relative_path === normalized || f.file_name === normalized) || null;
 };
+
+const fileNameFromPath = (path) => {
+  const raw = String(path || "").trim();
+  if (!raw) return "";
+  const parts = raw.split("/").filter(Boolean);
+  return parts[parts.length - 1] || raw;
+};
+
+const isImageTreePath = (path) => IMAGE_FILE_EXT_PATTERN.test(String(path || ""));
+const isMarkdownTreePath = (path) => /\.md$/i.test(String(path || "").trim());
 
 // =================API 封装库=================
 const api = {
@@ -70,6 +82,16 @@ const api = {
 
 // =================UI 渲染中心=================
 const ui = {
+  buildImagePreviewUrl(treePath, { bustCache = true } = {}) {
+    const query = new URLSearchParams({
+      user_id: state.userId,
+      employee_id: state.activeEmployeeId,
+      path: String(treePath || ""),
+    });
+    if (bustCache) query.set("ts", String(Date.now()));
+    return `/memory/file-preview?${query.toString()}`;
+  },
+
   appendChat(type, content) {
     const tpl = $("chatItemTemplate").content.cloneNode(true);
     const item = tpl.querySelector(".chat-item");
@@ -92,6 +114,39 @@ const ui = {
         </details>`;
     }
     
+    els.chatLog.appendChild(item);
+    els.chatLog.scrollTop = els.chatLog.scrollHeight;
+  },
+
+  appendImageToChat(imageInfo) {
+    if (!imageInfo?.path || !state.userId || !state.activeEmployeeId) return;
+    const tpl = $("chatItemTemplate").content.cloneNode(true);
+    const item = tpl.querySelector(".chat-item");
+    item.classList.add("assistant");
+    tpl.querySelector(".chat-meta").textContent = "🖼️ 图片结果";
+
+    const body = tpl.querySelector(".chat-body");
+    const card = document.createElement("div");
+    card.className = "chat-image-card";
+
+    const img = document.createElement("img");
+    img.src = ui.buildImagePreviewUrl(imageInfo.path, { bustCache: true });
+    img.alt = imageInfo.fileName || "生成图片";
+    img.loading = "lazy";
+
+    const meta = document.createElement("div");
+    meta.className = "chat-image-meta";
+    const metaParts = [];
+    if (imageInfo.fileName) metaParts.push(imageInfo.fileName);
+    if (imageInfo.model) metaParts.push(imageInfo.model);
+    if (imageInfo.aspectRatio) metaParts.push(`比例 ${imageInfo.aspectRatio}`);
+    if (imageInfo.resolution) metaParts.push(imageInfo.resolution);
+    meta.textContent = metaParts.join(" · ");
+
+    card.appendChild(img);
+    if (meta.textContent) card.appendChild(meta);
+    body.appendChild(card);
+
     els.chatLog.appendChild(item);
     els.chatLog.scrollTop = els.chatLog.scrollHeight;
   },
@@ -174,9 +229,49 @@ const ui = {
   },
 
   updateEditor() {
+    const activePath = String(state.activeFile || "");
     const file = findEditableFile(state.activeFile);
-    els.fileName.textContent = file ? file.file_name : "未选择文件";
-    els.fileContent.value = file ? file.content : "";
+    const imageSelected = !!activePath && isImageTreePath(activePath) && !isMarkdownTreePath(activePath);
+    const globallyLocked = !state.userId || state.isChatting;
+
+    // 每次更新编辑区先回到“文本模式”，仅在明确是图片文件时再切换到预览模式。
+    els.fileImagePreview.hidden = true;
+    els.fileImagePreview.style.display = "none";
+    els.fileImagePreviewImg.removeAttribute("src");
+    els.fileImagePreviewImg.alt = "";
+    els.fileImagePreviewPath.textContent = "";
+    els.fileContent.style.display = "";
+
+    if (imageSelected && state.userId && state.activeEmployeeId) {
+      const displayName = fileNameFromPath(activePath) || "图片文件";
+      els.fileName.textContent = displayName;
+      els.fileImagePreview.hidden = false;
+      els.fileImagePreview.style.display = "flex";
+      els.fileImagePreviewImg.src = ui.buildImagePreviewUrl(activePath, { bustCache: true });
+      els.fileImagePreviewPath.textContent = activePath;
+      els.fileContent.style.display = "none";
+      els.fileContent.value = "";
+      els.btnSaveFile.disabled = true;
+      return;
+    }
+
+    if (file) {
+      els.fileName.textContent = file.file_name;
+      els.fileContent.value = file.content;
+      els.btnSaveFile.disabled = globallyLocked;
+      return;
+    }
+
+    if (activePath) {
+      els.fileName.textContent = fileNameFromPath(activePath) || "未选择文件";
+      els.fileContent.value = "该文件不支持文本编辑。";
+      els.btnSaveFile.disabled = true;
+      return;
+    }
+
+    els.fileName.textContent = "未选择文件";
+    els.fileContent.value = "";
+    els.btnSaveFile.disabled = true;
   },
 
   applySettings(settings) {
@@ -192,12 +287,44 @@ const ui = {
   lockUI(locked) {
     const disabled = !state.userId || locked;
     [els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnResetMemory, els.btnReloadFiles, els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), $("saveFileBtn"), els.msgInput, els.chatForm.querySelector("button")].forEach(el => el.disabled = disabled);
+    if (!disabled) ui.updateEditor();
     if (!state.userId) els.msgInput.placeholder = "请先配置并应用用户 ID...";
   }
 };
 
 // =================核心业务逻辑=================
 const logic = {
+  parseJsonObject(value) {
+    if (value && typeof value === "object") return value;
+    if (typeof value !== "string") return null;
+    const text = value.trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  },
+
+  extractGeneratedImage(payload) {
+    if (!payload || payload.tool_name !== "image_gen_edit") return null;
+    const resultEnvelope = payload.result;
+    if (!resultEnvelope || typeof resultEnvelope !== "object" || resultEnvelope.error) return null;
+    const data = this.parseJsonObject(resultEnvelope.result);
+    if (!data) return null;
+
+    const path = String(data.workspace_relative_path || data.brand_relative_path || "").trim();
+    if (!path || !isImageTreePath(path)) return null;
+    return {
+      path,
+      fileName: String(data.workspace_file_name || data.brand_file_name || fileNameFromPath(path)),
+      model: String(data.model || ""),
+      aspectRatio: String(data.aspect_ratio || ""),
+      resolution: String(data.resolution || ""),
+    };
+  },
+
   parseIntOrNull(value) {
     const parsed = parseInt(String(value ?? "").trim(), 10);
     return Number.isFinite(parsed) ? parsed : null;
@@ -308,7 +435,13 @@ const logic = {
       state.expandedDirs = new Set();
       const history = await api.get("/employee-messages", { limit: "50" });
       els.chatLog.innerHTML = "";
-      (history.messages || []).forEach(m => ui.appendChat(m.role, m.content));
+      (history.messages || []).forEach(m => {
+        ui.appendChat(m.role, m.content);
+        if (m.role !== "tool") return;
+        const toolPayload = this.parseJsonObject(m.content);
+        const imageInfo = this.extractGeneratedImage(toolPayload);
+        if (imageInfo) ui.appendImageToChat(imageInfo);
+      });
 
       await this.refreshFiles();
       
@@ -369,7 +502,12 @@ const logic = {
           try {
             const ev = JSON.parse(m[1]);
             if (ev.type === 'assistant_final') ui.appendChat('assistant', ev.payload.content);
-            else if (ev.type === 'tool_call' || ev.type === 'tool_result') ui.appendChat(ev.type, ev.payload);
+            else if (ev.type === 'tool_call') ui.appendChat(ev.type, ev.payload);
+            else if (ev.type === 'tool_result') {
+              ui.appendChat(ev.type, ev.payload);
+              const imageInfo = this.extractGeneratedImage(ev.payload);
+              if (imageInfo) ui.appendImageToChat(imageInfo);
+            }
             else if (ev.type === 'memory_status') ui.updateTokenBoard(ev.payload);
           } catch(e) {}
         });
