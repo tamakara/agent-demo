@@ -325,6 +325,33 @@ const logic = {
     };
   },
 
+  normalizeHistoryMessage(message) {
+    if (!message || typeof message !== "object") {
+      return { type: "assistant", payload: "" };
+    }
+    const role = String(message.role || "assistant");
+    const zone = String(message.zone || "");
+    const content = message.content;
+    const parsedPayload = this.parseJsonObject(content);
+    const parsedEventName = String(parsedPayload?.event || "").trim();
+
+    // 兼容旧数据：即使不在 tool 分区，只要内容是工具事件也按工具消息渲染。
+    if (parsedEventName === "tool_call" || parsedEventName === "tool_result") {
+      return { type: parsedEventName, payload: parsedPayload };
+    }
+
+    // 工具区历史消息需要恢复为 tool_call/tool_result 事件视图，
+    // 避免被当作 assistant 普通文本渲染。
+    if (zone === "tool") {
+      if (parsedPayload) {
+        return { type: "tool_result", payload: parsedPayload };
+      }
+      return { type: role || "tool_result", payload: String(content || "") };
+    }
+
+    return { type: role, payload: content };
+  },
+
   parseIntOrNull(value) {
     const parsed = parseInt(String(value ?? "").trim(), 10);
     return Number.isFinite(parsed) ? parsed : null;
@@ -436,10 +463,11 @@ const logic = {
       const history = await api.get("/employee-messages", { limit: "50" });
       els.chatLog.innerHTML = "";
       (history.messages || []).forEach(m => {
-        ui.appendChat(m.role, m.content);
-        if (m.role !== "tool") return;
-        const toolPayload = this.parseJsonObject(m.content);
-        const imageInfo = this.extractGeneratedImage(toolPayload);
+        const normalized = this.normalizeHistoryMessage(m);
+        ui.appendChat(normalized.type, normalized.payload);
+        const imageInfo = this.extractGeneratedImage(
+          normalized && normalized.type === "tool_result" ? normalized.payload : null
+        );
         if (imageInfo) ui.appendImageToChat(imageInfo);
       });
 
