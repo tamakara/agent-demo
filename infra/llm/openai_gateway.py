@@ -25,6 +25,12 @@ from infra.tools.builtin_tools import BuiltinToolRunner
 from infra.tools.tool_registry import TOOL_SCHEMAS
 
 
+DEFAULT_TEMPERATURE = 1.0
+DEFAULT_MAX_COMPLETION_TOKENS = 64000
+DEFAULT_PARALLEL_TOOL_CALLS = False
+DEFAULT_REASONING_EFFORT = "high"
+
+
 class OpenAIGateway(LLMGatewayPort):
     """OpenAI 兼容接口实现。"""
 
@@ -64,6 +70,10 @@ class OpenAIGateway(LLMGatewayPort):
                     "messages": working_messages,
                     "tools": TOOL_SCHEMAS,
                     "tool_choice": "auto",
+                    "temperature": DEFAULT_TEMPERATURE,
+                    "max_completion_tokens": DEFAULT_MAX_COMPLETION_TOKENS,
+                    "parallel_tool_calls": DEFAULT_PARALLEL_TOOL_CALLS,
+                    "reasoning_effort": DEFAULT_REASONING_EFFORT,
                 }
                 request_snapshot = json.loads(json.dumps(request_body, ensure_ascii=False))
                 llm_request_event = {
@@ -88,6 +98,10 @@ class OpenAIGateway(LLMGatewayPort):
                         messages=build_typed_messages(working_messages),
                         tools=build_typed_tools(),
                         tool_choice="auto",
+                        temperature=DEFAULT_TEMPERATURE,
+                        max_completion_tokens=DEFAULT_MAX_COMPLETION_TOKENS,
+                        parallel_tool_calls=DEFAULT_PARALLEL_TOOL_CALLS,
+                        reasoning_effort=DEFAULT_REASONING_EFFORT,
                     )
                 except APIStatusError as exc:
                     raise RuntimeError(f"模型接口调用失败（HTTP {exc.status_code}）：{exc}") from exc
@@ -124,6 +138,7 @@ class OpenAIGateway(LLMGatewayPort):
                         user_id=user_id,
                         employee_id=employee_id,
                         tool_runner=self.tool_runner,
+                        llm_config=llm_config,
                         working_messages=working_messages,
                         on_event=on_event,
                         tool_events=tool_events,

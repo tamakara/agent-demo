@@ -71,6 +71,8 @@ PREFERRED_FILE_ORDER = [
     ASSET_PLACEHOLDER_FILE,
     SYSTEM_PROMPT_FILE,
 ]
+VISIBLE_TEXT_SUFFIXES = {".md"}
+VISIBLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp"}
 
 
 class FileMemoryRepository(MemoryFileRepositoryPort):
@@ -185,31 +187,41 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             seen_paths.add(path)
             entries.append({"path": path, "is_dir": is_dir})
 
-        def append_direct_markdown_files(base_dir: Path, prefix: str) -> None:
-            """仅追加目录下一层 ``.md`` 文件，限制目录深度到三层。"""
+        def append_direct_files(base_dir: Path, prefix: str, *, suffixes: set[str]) -> None:
+            """仅追加目录下一层指定后缀文件，限制目录深度到三层。"""
             if not base_dir.exists():
                 return
-            for file_path in sorted(base_dir.glob("*.md"), key=lambda p: p.name.lower()):
+            for file_path in sorted(base_dir.iterdir(), key=lambda p: p.name.lower()):
+                if file_path.suffix.lower() not in suffixes:
+                    continue
                 if file_path.is_file():
                     append_entry(f"{prefix}/{file_path.name}", is_dir=False)
 
         append_entry("/brand_library", is_dir=True)
-        append_direct_markdown_files(brand_root, "/brand_library")
+        append_direct_files(
+            brand_root,
+            "/brand_library",
+            suffixes=VISIBLE_TEXT_SUFFIXES | VISIBLE_IMAGE_SUFFIXES,
+        )
 
         append_entry("/employee", is_dir=True)
         append_entry("/employee/memory.md", is_dir=False)
 
         append_entry("/employee/notebook", is_dir=True)
-        append_direct_markdown_files(notebook_root, "/employee/notebook")
+        append_direct_files(notebook_root, "/employee/notebook", suffixes=VISIBLE_TEXT_SUFFIXES)
 
         append_entry("/employee/skills", is_dir=True)
-        append_direct_markdown_files(skills_root, "/employee/skills")
+        append_direct_files(skills_root, "/employee/skills", suffixes=VISIBLE_TEXT_SUFFIXES)
 
         append_entry("/employee/workspace", is_dir=True)
-        append_direct_markdown_files(workspace_root, "/employee/workspace")
+        append_direct_files(
+            workspace_root,
+            "/employee/workspace",
+            suffixes=VISIBLE_TEXT_SUFFIXES | VISIBLE_IMAGE_SUFFIXES,
+        )
 
         append_entry("/skill_library", is_dir=True)
-        append_direct_markdown_files(skill_root, "/skill_library")
+        append_direct_files(skill_root, "/skill_library", suffixes=VISIBLE_TEXT_SUFFIXES)
         return entries
 
     def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:

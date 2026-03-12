@@ -52,7 +52,6 @@ class ChatStreamRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1)
     employee_id: str = Field(default="1", min_length=1)
-    max_tool_rounds: int | None = Field(default=None, ge=1, le=20)
 
     @field_validator("user_id", "message", "employee_id", mode="before")
     @classmethod
@@ -73,7 +72,6 @@ class FlushRequest(BaseModel):
 
     user_id: str = Field(..., min_length=1)
     employee_id: str = Field(default="1", min_length=1)
-    max_tool_rounds: int | None = Field(default=None, ge=1, le=20)
 
     @field_validator("user_id", "employee_id", mode="before")
     @classmethod
@@ -89,7 +87,6 @@ class SettingsUpdateRequest(BaseModel):
     model: str = Field(default="agent-advoo")
     api_key: str = Field(default="")
     base_url: str | None = Field(default="http://model-gateway.test.api.dotai.internal/v1")
-    max_tool_rounds: int = Field(default=6, ge=1, le=20)
     total_token_limit: int = Field(default=200000, ge=20000, le=2000000)
     tokenizer_model: Literal["gemini-3-flash", "gemini-3.1-pro"] = Field(default=DEFAULT_TOKENIZER_MODEL)
 

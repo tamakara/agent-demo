@@ -117,8 +117,7 @@ Body:
 {
   "user_id": "alice",
   "employee_id": "1",
-  "message": "你好",
-  "max_tool_rounds": 6
+  "message": "你好"
 }
 ```
 
@@ -126,6 +125,7 @@ Body:
 
 - 返回 `text/event-stream`
 - SSE 事件包详见 `sse_protocol.md`
+- 工具轮次固定为 `64`，不再支持外部配置
 
 ### 3.3 配置
 
@@ -140,7 +140,7 @@ Data:
 - `model`
 - `api_key`
 - `base_url`
-- `max_tool_rounds`
+- `max_tool_rounds`（固定返回 `64`）
 - `total_token_limit`
 - `tokenizer_model`（`gemini-3-flash` / `gemini-3.1-pro`）
 
@@ -154,11 +154,14 @@ Body:
   "model": "agent-advoo",
   "api_key": "sk-...",
   "base_url": "http://model-gateway.test.api.dotai.internal/v1",
-  "max_tool_rounds": 6,
   "total_token_limit": 200000,
   "tokenizer_model": "gemini-3-flash"
 }
 ```
+
+说明：
+
+- `max_tool_rounds` 已固定为 `64`，`PUT /settings` 不再支持修改该值
 
 ### 3.4 记忆
 
@@ -224,8 +227,7 @@ Body:
 ```json
 {
   "user_id": "alice",
-  "employee_id": "1",
-  "max_tool_rounds": 6
+  "employee_id": "1"
 }
 ```
 

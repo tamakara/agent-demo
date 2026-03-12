@@ -184,7 +184,6 @@ const ui = {
     $("model").value = settings.model || "";
     $("apiKey").value = settings.api_key || "";
     $("baseUrl").value = settings.base_url || "";
-    $("maxToolRounds").value = settings.max_tool_rounds != null ? String(settings.max_tool_rounds) : "";
     $("totalTokenLimit").value = settings.total_token_limit != null ? String(settings.total_token_limit) : "";
     const tokenizerModel = String(settings.tokenizer_model || "").trim().toLowerCase();
     $("tokenizerModel").value = TOKENIZER_OPTIONS.includes(tokenizerModel) ? tokenizerModel : DEFAULT_TOKENIZER_MODEL;
@@ -248,12 +247,11 @@ const logic = {
     const model = $("model").value.trim();
     const apiKey = $("apiKey").value.trim();
     const baseUrl = $("baseUrl").value.trim();
-    const maxToolRounds = this.parseIntOrNull($("maxToolRounds").value);
     const totalTokenLimit = this.parseIntOrNull($("totalTokenLimit").value);
     const tokenizerModel = String($("tokenizerModel").value || "").trim().toLowerCase();
 
-    if (maxToolRounds == null || totalTokenLimit == null) {
-      return ui.appendChat('error', "请填写合法的 Max Tool Rounds 和 Total Token Limit");
+    if (totalTokenLimit == null) {
+      return ui.appendChat('error', "请填写合法的 Total Token Limit");
     }
     if (!TOKENIZER_OPTIONS.includes(tokenizerModel)) {
       return ui.appendChat('error', "请选择合法的 Tokenizer");
@@ -264,7 +262,6 @@ const logic = {
       model,
       api_key: apiKey,
       base_url: baseUrl,
-      max_tool_rounds: maxToolRounds,
       total_token_limit: totalTokenLimit,
       tokenizer_model: tokenizerModel
     });
@@ -275,9 +272,7 @@ const logic = {
 
   async manualFlush() {
     if (!state.userId || !state.activeEmployeeId) return ui.appendChat('error', "请先选择用户与员工");
-    const maxToolRounds = this.parseIntOrNull($("maxToolRounds").value);
     const body = { user_id: state.userId, employee_id: state.activeEmployeeId };
-    if (maxToolRounds != null) body.max_tool_rounds = maxToolRounds;
     const data = await api.post("/memory/flush", body);
     const accepted = !!data?.accepted;
     ui.appendChat("meta", accepted ? "已触发手动刷盘" : "当前已有刷盘任务在执行");
@@ -357,9 +352,7 @@ const logic = {
     ui.appendChat('user', msg);
     
     try {
-      const maxToolRounds = this.parseIntOrNull($("maxToolRounds").value);
       const payload = { user_id: state.userId, employee_id: state.activeEmployeeId, message: msg };
-      if (maxToolRounds != null) payload.max_tool_rounds = maxToolRounds;
       const res = await fetch("/chat/stream", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

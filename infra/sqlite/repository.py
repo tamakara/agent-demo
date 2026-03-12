@@ -16,7 +16,7 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "agen
 DEFAULT_LLM_MODEL = "agent-advoo"
 DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
 DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
-DEFAULT_LLM_MAX_TOOL_ROUNDS = 6
+DEFAULT_LLM_MAX_TOOL_ROUNDS = 64
 DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
 GLOBAL_LLM_SELECT_SQL = """
 SELECT

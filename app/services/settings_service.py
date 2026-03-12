@@ -6,6 +6,9 @@ from app.ports.repositories import UserSettingsRepositoryPort
 from domain.models import GlobalSettings
 
 
+FIXED_MAX_TOOL_ROUNDS = 64
+
+
 class SettingsService:
     """用户设置服务。"""
     def __init__(self, settings_repo: UserSettingsRepositoryPort) -> None:
@@ -23,7 +26,6 @@ class SettingsService:
         model: str,
         api_key: str,
         base_url: str | None,
-        max_tool_rounds: int,
         total_token_limit: int,
         tokenizer_model: str,
     ) -> GlobalSettings:
@@ -33,7 +35,7 @@ class SettingsService:
             model=model,
             api_key=api_key,
             base_url=base_url,
-            max_tool_rounds=max_tool_rounds,
+            max_tool_rounds=FIXED_MAX_TOOL_ROUNDS,
             total_token_limit=total_token_limit,
             tokenizer_model=tokenizer_model,
         )

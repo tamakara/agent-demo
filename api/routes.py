@@ -26,6 +26,9 @@ from common.response import error_response, success_response
 from domain.models import LLMConfig
 
 
+FIXED_MAX_TOOL_ROUNDS = 64
+
+
 def _new_request_id() -> str:
     """生成请求级追踪 ID。"""
     return uuid4().hex
@@ -140,7 +143,7 @@ def create_router(container: AppContainer) -> APIRouter:
                 "model": settings.model,
                 "api_key": settings.api_key,
                 "base_url": settings.base_url,
-                "max_tool_rounds": settings.max_tool_rounds,
+                "max_tool_rounds": FIXED_MAX_TOOL_ROUNDS,
                 "total_token_limit": settings.total_token_limit,
                 "tokenizer_model": settings.tokenizer_model,
             }
@@ -159,7 +162,6 @@ def create_router(container: AppContainer) -> APIRouter:
                 model=body.model,
                 api_key=body.api_key,
                 base_url=body.base_url,
-                max_tool_rounds=body.max_tool_rounds,
                 total_token_limit=body.total_token_limit,
                 tokenizer_model=body.tokenizer_model,
             )
@@ -167,7 +169,7 @@ def create_router(container: AppContainer) -> APIRouter:
                 "model": latest.model,
                 "api_key": latest.api_key,
                 "base_url": latest.base_url,
-                "max_tool_rounds": latest.max_tool_rounds,
+                "max_tool_rounds": FIXED_MAX_TOOL_ROUNDS,
                 "total_token_limit": latest.total_token_limit,
                 "tokenizer_model": latest.tokenizer_model,
             }
@@ -191,7 +193,7 @@ def create_router(container: AppContainer) -> APIRouter:
         await container.memory_file_service.ensure_employee_files(user_id, employee_id)
         settings = await container.settings_service.get_settings(user_id)
         llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
-        max_tool_rounds = request.max_tool_rounds or settings.max_tool_rounds
+        max_tool_rounds = FIXED_MAX_TOOL_ROUNDS
 
         async def event_stream() -> AsyncIterator[str]:
             """将用例产出的内部事件转发为 SSE 事件流。"""
@@ -456,7 +458,7 @@ def create_router(container: AppContainer) -> APIRouter:
 
             settings = await container.settings_service.get_settings(normalized_user_id)
             llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
-            max_tool_rounds = request.max_tool_rounds or settings.max_tool_rounds
+            max_tool_rounds = FIXED_MAX_TOOL_ROUNDS
 
             accepted = await container.flush_use_case.try_start_manual_flush(
                 user_id=normalized_user_id,

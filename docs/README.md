@@ -13,7 +13,8 @@
 7. [multi_user.md](multi_user.md)：多用户隔离规则
 8. [frontend_guide.md](frontend_guide.md)：前端接入与状态管理
 9. [core_modules.md](core_modules.md)：模块职责清单
-10. [testing.md](testing.md)：测试策略与执行方式
+10. [image_tooling.md](image_tooling.md)：文生图工具与素材流转
+11. [testing.md](testing.md)：测试策略与执行方式
 
 ## 文档边界说明
 
@@ -21,5 +22,6 @@
 - SSE 字段与事件顺序仅在 `sse_protocol.md` 维护
 - 数据表与目录结构仅在 `data_model.md` 维护
 - 前端行为仅在 `frontend_guide.md` 维护
+- 图片工具行为仅在 `image_tooling.md` 维护
 
 通过上述边界，避免同一规则在多个文件重复维护。

@@ -6,6 +6,7 @@ import inspect
 from typing import Any
 
 from app.ports.repositories import EventCallback, SystemMessageRefresher
+from domain.models import LLMConfig
 from infra.llm.event_publisher import emit, record_event
 from infra.llm.request_builder import normalize_tool_name, serialize_tool_content
 from infra.tools.builtin_tools import BuiltinToolRunner
@@ -121,6 +122,7 @@ async def process_tool_calls(
     user_id: str,
     employee_id: str,
     tool_runner: BuiltinToolRunner,
+    llm_config: LLMConfig | None,
     working_messages: list[dict[str, Any]],
     on_event: EventCallback | None,
     tool_events: list[dict[str, Any]],
@@ -182,6 +184,7 @@ async def process_tool_calls(
                 tool_args,
                 user_id=user_id,
                 employee_id=employee_id,
+                llm_config=llm_config,
             )
             payload_result: dict[str, Any] = {"result": tool_result}
         except Exception as exc:  # noqa: BLE001

@@ -53,7 +53,7 @@
 - `llm_model`
 - `llm_api_key`
 - `llm_base_url`
-- `llm_max_tool_rounds`
+- `llm_max_tool_rounds`（固定为 `64`，不再在 UI 配置）
 - `context_total_token_limit`
 - `tokenizer_model`（默认 `gemini-3-flash`）
 - `updated_at`
