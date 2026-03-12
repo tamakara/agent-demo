@@ -17,13 +17,15 @@ DEFAULT_LLM_MODEL = "agent-advoo"
 DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
 DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 DEFAULT_LLM_MAX_TOOL_ROUNDS = 6
+DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
 GLOBAL_LLM_SELECT_SQL = """
 SELECT
     llm_model,
     llm_api_key,
     llm_base_url,
     llm_max_tool_rounds,
-    context_total_token_limit
+    context_total_token_limit,
+    tokenizer_model
 FROM app_settings
 WHERE user_id = ?;
 """
@@ -92,10 +94,12 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     llm_base_url TEXT NOT NULL,
                     llm_max_tool_rounds INTEGER NOT NULL,
                     context_total_token_limit INTEGER NOT NULL,
+                    tokenizer_model TEXT NOT NULL DEFAULT 'gemini-3-flash',
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 """
             )
+            self._ensure_app_settings_schema(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -129,6 +133,30 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             self._conn = conn
 
     @staticmethod
+    def _ensure_app_settings_schema(conn: sqlite3.Connection) -> None:
+        """确保 ``app_settings`` 表包含当前版本所需列。"""
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(app_settings);").fetchall()
+            if row["name"] is not None
+        }
+        if "tokenizer_model" not in columns:
+            conn.execute(
+                """
+                ALTER TABLE app_settings
+                ADD COLUMN tokenizer_model TEXT NOT NULL DEFAULT 'gemini-3-flash';
+                """
+            )
+        conn.execute(
+            """
+            UPDATE app_settings
+            SET tokenizer_model = ?
+            WHERE tokenizer_model IS NULL OR TRIM(tokenizer_model) = '';
+            """,
+            (DEFAULT_TOKENIZER_MODEL,),
+        )
+
+    @staticmethod
     def _ensure_global_llm_config_seed(conn: sqlite3.Connection, user_id: str) -> None:
         """在配置缺失时插入默认 LLM 参数。"""
         existing = conn.execute(
@@ -146,8 +174,9 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 llm_api_key,
                 llm_base_url,
                 llm_max_tool_rounds,
-                context_total_token_limit
-            ) VALUES (?, ?, ?, ?, ?, ?);
+                context_total_token_limit,
+                tokenizer_model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 user_id,
@@ -156,6 +185,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 DEFAULT_LLM_BASE_URL,
                 DEFAULT_LLM_MAX_TOOL_ROUNDS,
                 DEFAULT_TOTAL_LIMIT,
+                DEFAULT_TOKENIZER_MODEL,
             ),
         )
 
@@ -236,6 +266,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 base_url=base_url,
                 max_tool_rounds=int(row["llm_max_tool_rounds"] or DEFAULT_LLM_MAX_TOOL_ROUNDS),
                 total_token_limit=int(row["context_total_token_limit"] or DEFAULT_TOTAL_LIMIT),
+                tokenizer_model=str(row["tokenizer_model"] or "").strip() or DEFAULT_TOKENIZER_MODEL,
             )
 
     async def update_global_settings(self, settings: GlobalSettings) -> GlobalSettings:
@@ -251,14 +282,16 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     llm_base_url,
                     llm_max_tool_rounds,
                     context_total_token_limit,
+                    tokenizer_model,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     llm_model = excluded.llm_model,
                     llm_api_key = excluded.llm_api_key,
                     llm_base_url = excluded.llm_base_url,
                     llm_max_tool_rounds = excluded.llm_max_tool_rounds,
                     context_total_token_limit = excluded.context_total_token_limit,
+                    tokenizer_model = excluded.tokenizer_model,
                     updated_at = CURRENT_TIMESTAMP;
                 """,
                 (
@@ -268,6 +301,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     settings.base_url or "",
                     int(settings.max_tool_rounds),
                     int(settings.total_token_limit),
+                    settings.tokenizer_model,
                 ),
             )
             conn.commit()
@@ -436,4 +470,3 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 (user_id, limit),
             ).fetchall()
             return [dict(row) for row in rows]
-

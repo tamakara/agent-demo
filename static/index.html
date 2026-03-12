@@ -107,6 +107,13 @@
           <label class="full-width"><span>Base URL</span><input id="baseUrl" type="text"></label>
           <label><span>Max Tool Rounds</span><input id="maxToolRounds" type="number" min="1" max="20"></label>
           <label><span>Total Token Limit</span><input id="totalTokenLimit" type="number" step="1000"></label>
+          <label>
+            <span>Tokenizer</span>
+            <select id="tokenizerModel">
+              <option value="gemini-3-flash">gemini-3-flash</option>
+              <option value="gemini-3.1-pro">gemini-3.1-pro</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="modal-footer">

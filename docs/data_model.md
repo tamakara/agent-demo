@@ -55,6 +55,7 @@
 - `llm_base_url`
 - `llm_max_tool_rounds`
 - `context_total_token_limit`
+- `tokenizer_model`（默认 `gemini-3-flash`）
 - `updated_at`
 
 ## 2. 文件系统

@@ -11,8 +11,8 @@ from app.use_cases.chat_stream_use_case import ChatStreamUseCase
 from app.use_cases.flush_use_case import FlushUseCase
 from app.use_cases.memory_context import MemoryContextService
 from app.use_cases.memory_status_use_case import MemoryStatusUseCase
+from infra.llm.gemini_tokenizer_counter import GeminiTokenizerCounter
 from infra.llm.openai_gateway import OpenAIGateway
-from infra.llm.tiktoken_counter import TiktokenCounter
 from infra.memory.file_repository import FileMemoryRepository
 from infra.sqlite.repository import SQLiteRepository
 from infra.tools.builtin_tools import BuiltinToolRunner
@@ -43,7 +43,7 @@ async def build_container() -> AppContainer:
     clock = SystemClock()
     tool_runner = BuiltinToolRunner(memory_repo=memory_file_repo, clock=clock)
     llm_gateway = OpenAIGateway(tool_runner=tool_runner)
-    token_counter = TiktokenCounter()
+    token_counter = GeminiTokenizerCounter()
 
     # 记忆上下文服务聚合核心读写策略，供多个用例复用。
     memory_context = MemoryContextService(

@@ -142,6 +142,7 @@ def create_router(container: AppContainer) -> APIRouter:
                 "base_url": settings.base_url,
                 "max_tool_rounds": settings.max_tool_rounds,
                 "total_token_limit": settings.total_token_limit,
+                "tokenizer_model": settings.tokenizer_model,
             }
             return JSONResponse(success_response(request_id=request_id, data=data))
         except AppError as exc:
@@ -160,6 +161,7 @@ def create_router(container: AppContainer) -> APIRouter:
                 base_url=body.base_url,
                 max_tool_rounds=body.max_tool_rounds,
                 total_token_limit=body.total_token_limit,
+                tokenizer_model=body.tokenizer_model,
             )
             data = {
                 "model": latest.model,
@@ -167,6 +169,7 @@ def create_router(container: AppContainer) -> APIRouter:
                 "base_url": latest.base_url,
                 "max_tool_rounds": latest.max_tool_rounds,
                 "total_token_limit": latest.total_token_limit,
+                "tokenizer_model": latest.tokenizer_model,
             }
             return JSONResponse(success_response(request_id=request_id, data=data))
         except AppError as exc:

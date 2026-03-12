@@ -24,7 +24,7 @@
 
 | 口径 | 来源 | 用途 | 是否参与阈值判断 |
 |---|---|---|---|
-| 本地记账 token | `infra/llm/tiktoken_counter.py` | 上下文裁剪、状态面板、刷盘触发 | 是 |
+| 本地记账 token | `infra/llm/gemini_tokenizer_counter.py` | 上下文裁剪、状态面板、刷盘触发 | 是 |
 | 模型 `usage` | `response.usage` | 透传到 `assistant_final` 事件 | 否 |
 
 关键点：
@@ -87,11 +87,11 @@ pie showData
 ```mermaid
 flowchart TD
     A["收到用户消息"] --> B["读取 total_token_limit 并计算 thresholds"]
-    B --> C["写入 user 消息<br/>zone=dialogue 或 buffer<br/>token_count=tiktoken(content)"]
+    B --> C["写入 user 消息<br/>zone=dialogue 或 buffer<br/>token_count=count_tokens(content)"]
     C --> D["构建 prompt<br/>resident_recent/dialogue/tool/buffer 按预算裁剪"]
     D --> E["调用 LLM + 工具循环"]
-    E --> F["保存工具事件<br/>zone=tool<br/>token_count=tiktoken(event_json)"]
-    F --> G["保存 assistant 文本<br/>zone=dialogue 或 buffer<br/>token_count=tiktoken(content)"]
+    E --> F["保存工具事件<br/>zone=tool<br/>token_count=count_tokens(event_json)"]
+    F --> G["保存 assistant 文本<br/>zone=dialogue 或 buffer<br/>token_count=count_tokens(content)"]
     G --> H["汇总各 zone token"]
     H --> I{total_tokens >= flush_trigger?}
     I -- 否 --> J["返回 memory_status"]
@@ -103,13 +103,13 @@ flowchart TD
 
 ### 4.1 计数器实现
 
-`TiktokenCounter.count_tokens(text, model)`：
+`GeminiTokenizerCounter.count_tokens(text, model)`：
 
-- 根据模型选择编码：`tiktoken.encoding_for_model(model)`
-- 若失败回退 `cl100k_base`
-- 计数方式是 `len(encoding.encode(text))`
+- 基于用户设置的 `tokenizer_model` 调用 `genai.Client().models.count_tokens(...)`
+- 从响应中读取 `total_tokens`
+- SDK 不可用时降级为本地估算，保证主流程可用
 
-`truncate_text_to_tokens(text, limit, model)` 通过“先编码再截断再解码”控制预算。
+`truncate_text_to_tokens(text, limit, model)` 通过二分查找控制预算。
 
 ### 4.2 `resident_static_tokens`（常驻静态）
 
@@ -272,7 +272,7 @@ LIMIT 50;
 ## 8. 关键代码索引
 
 - 阈值策略：`domain/window_policy.py`
-- token 计数器：`infra/llm/tiktoken_counter.py`
+- token 计数器：`infra/llm/gemini_tokenizer_counter.py`
 - prompt 预算裁剪：`domain/prompt_composer.py`
 - 聊天主流程：`app/use_cases/memory_context.py`
 - `usage` 提取：`infra/llm/request_builder.py`

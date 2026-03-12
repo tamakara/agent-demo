@@ -7,6 +7,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+TOKENIZER_MODEL_OPTIONS = ("gemini-3-flash", "gemini-3.1-pro")
+DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
+
+
 def ensure_string(value: Any) -> str:
     """确保输入值是字符串类型。"""
     if not isinstance(value, str):
@@ -87,6 +91,7 @@ class SettingsUpdateRequest(BaseModel):
     base_url: str | None = Field(default="http://model-gateway.test.api.dotai.internal/v1")
     max_tool_rounds: int = Field(default=6, ge=1, le=20)
     total_token_limit: int = Field(default=200000, ge=20000, le=2000000)
+    tokenizer_model: Literal["gemini-3-flash", "gemini-3.1-pro"] = Field(default=DEFAULT_TOKENIZER_MODEL)
 
     @field_validator("user_id", mode="before")
     @classmethod
@@ -129,3 +134,16 @@ class SettingsUpdateRequest(BaseModel):
             return int(value)
         except Exception as exc:  # noqa: BLE001
             raise TypeError("字段类型必须是整数") from exc
+
+    @field_validator("tokenizer_model", mode="before")
+    @classmethod
+    def normalize_tokenizer_model(cls, value: Any) -> str:
+        """规范化 tokenizer 选项。"""
+        if value is None:
+            return DEFAULT_TOKENIZER_MODEL
+        text = ensure_string(value).strip().lower()
+        if not text:
+            return DEFAULT_TOKENIZER_MODEL
+        if text not in TOKENIZER_MODEL_OPTIONS:
+            raise ValueError(f"tokenizer_model 仅支持: {', '.join(TOKENIZER_MODEL_OPTIONS)}")
+        return text

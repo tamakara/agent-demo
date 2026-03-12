@@ -2,6 +2,8 @@
 const CONFIG = {
   storageKey: "agent_demo_user_id"
 };
+const TOKENIZER_OPTIONS = ["gemini-3-flash", "gemini-3.1-pro"];
+const DEFAULT_TOKENIZER_MODEL = "gemini-3-flash";
 
 const state = {
   userId: localStorage.getItem(CONFIG.storageKey) || "",
@@ -184,6 +186,8 @@ const ui = {
     $("baseUrl").value = settings.base_url || "";
     $("maxToolRounds").value = settings.max_tool_rounds != null ? String(settings.max_tool_rounds) : "";
     $("totalTokenLimit").value = settings.total_token_limit != null ? String(settings.total_token_limit) : "";
+    const tokenizerModel = String(settings.tokenizer_model || "").trim().toLowerCase();
+    $("tokenizerModel").value = TOKENIZER_OPTIONS.includes(tokenizerModel) ? tokenizerModel : DEFAULT_TOKENIZER_MODEL;
   },
 
   lockUI(locked) {
@@ -246,9 +250,13 @@ const logic = {
     const baseUrl = $("baseUrl").value.trim();
     const maxToolRounds = this.parseIntOrNull($("maxToolRounds").value);
     const totalTokenLimit = this.parseIntOrNull($("totalTokenLimit").value);
+    const tokenizerModel = String($("tokenizerModel").value || "").trim().toLowerCase();
 
     if (maxToolRounds == null || totalTokenLimit == null) {
       return ui.appendChat('error', "请填写合法的 Max Tool Rounds 和 Total Token Limit");
+    }
+    if (!TOKENIZER_OPTIONS.includes(tokenizerModel)) {
+      return ui.appendChat('error', "请选择合法的 Tokenizer");
     }
 
     const latest = await api.put("/settings", {
@@ -257,7 +265,8 @@ const logic = {
       api_key: apiKey,
       base_url: baseUrl,
       max_tool_rounds: maxToolRounds,
-      total_token_limit: totalTokenLimit
+      total_token_limit: totalTokenLimit,
+      tokenizer_model: tokenizerModel
     });
     state.settings = latest || null;
     ui.applySettings(state.settings);

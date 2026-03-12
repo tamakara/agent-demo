@@ -25,6 +25,7 @@ class SettingsService:
         base_url: str | None,
         max_tool_rounds: int,
         total_token_limit: int,
+        tokenizer_model: str,
     ) -> GlobalSettings:
         """更新用户全局设置并返回最新值。"""
         settings = GlobalSettings(
@@ -34,6 +35,6 @@ class SettingsService:
             base_url=base_url,
             max_tool_rounds=max_tool_rounds,
             total_token_limit=total_token_limit,
+            tokenizer_model=tokenizer_model,
         )
         return await self.settings_repo.update_global_settings(settings)
-

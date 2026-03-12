@@ -38,7 +38,7 @@
 - `infra/llm/request_builder.py`：LLM 请求构建
 - `infra/llm/tool_loop.py`：工具循环执行
 - `infra/llm/openai_gateway.py`：OpenAI 兼容网关
-- `infra/llm/tiktoken_counter.py`：token 计数适配器
+- `infra/llm/gemini_tokenizer_counter.py`：Gemini tokenizer 计数适配器
 - `infra/tools/tool_registry.py`：工具 schema 与参数解析
 - `infra/tools/builtin_tools.py`：内置工具执行器
 - `infra/tools/clock.py`：系统时间适配器

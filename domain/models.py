@@ -23,6 +23,7 @@ class GlobalSettings:
     base_url: str | None
     max_tool_rounds: int
     total_token_limit: int
+    tokenizer_model: str
 
 
 @dataclass(slots=True)

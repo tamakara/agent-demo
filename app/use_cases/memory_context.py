@@ -31,6 +31,8 @@ ARCHIVE_SYSTEM_PROMPT = (
     "`write_memory_file` 工具，将新设定追加到最合适的记忆文件中。"
     "整理完成后，请输出纯文本“工作台摘要”，用于后续常驻区快速加载。"
 )
+DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
+TOKENIZER_MODEL_OPTIONS = {"gemini-3-flash", "gemini-3.1-pro"}
 
 
 class MemoryContextService:
@@ -69,15 +71,35 @@ class MemoryContextService:
                 self._session_locks[lock_key] = asyncio.Lock()
             return self._session_locks[lock_key]
 
-    async def _get_thresholds(self, user_id: str) -> WindowThresholds:
-        """读取用户 token 配置并计算窗口阈值。"""
+    @staticmethod
+    def _normalize_tokenizer_model(tokenizer_model: str | None, fallback_model: str) -> str:
+        """规范化用户配置的 tokenizer 模型名。"""
+        normalized = str(tokenizer_model or "").strip().lower()
+        if normalized in TOKENIZER_MODEL_OPTIONS:
+            return normalized
+        fallback = str(fallback_model or "").strip().lower()
+        if fallback in TOKENIZER_MODEL_OPTIONS:
+            return fallback
+        return DEFAULT_TOKENIZER_MODEL
+
+    async def _get_window_config(
+        self,
+        user_id: str,
+        *,
+        fallback_model: str = DEFAULT_TOKENIZER_MODEL,
+    ) -> tuple[WindowThresholds, str]:
+        """读取 token 窗口阈值与 tokenizer 选型。"""
         settings = await self.settings_repo.get_global_settings(user_id)
         total_limit = settings.total_token_limit
         try:
             parsed_total_limit = int(total_limit)
         except Exception:  # noqa: BLE001
             parsed_total_limit = DEFAULT_TOTAL_LIMIT
-        return WindowThresholds.from_total_limit(parsed_total_limit)
+        tokenizer_model = self._normalize_tokenizer_model(
+            settings.tokenizer_model,
+            fallback_model=fallback_model,
+        )
+        return WindowThresholds.from_total_limit(parsed_total_limit), tokenizer_model
 
     async def _persist_tool_events(
         self,
@@ -85,7 +107,7 @@ class MemoryContextService:
         user_id: str,
         session_id: str,
         events: list[dict[str, Any]],
-        model: str,
+        tokenizer_model: str,
     ) -> None:
         """将可持久化的工具事件落库到 ``tool`` 分区。"""
         for event in events:
@@ -101,7 +123,7 @@ class MemoryContextService:
                 role=role,
                 content=content,
                 zone="tool",
-                token_count=self.token_counter.count_tokens(content, model),
+                token_count=self.token_counter.count_tokens(content, tokenizer_model),
             )
 
     async def _compose_resident_system_text(
@@ -109,7 +131,7 @@ class MemoryContextService:
         user_id: str,
         employee_id: str,
         session_id: str,
-        model: str,
+        tokenizer_model: str,
         thresholds: WindowThresholds,
     ) -> str:
         """按当前会话状态拼装常驻 system 提示词。"""
@@ -118,7 +140,7 @@ class MemoryContextService:
             user_id=user_id,
             employee_id=employee_id,
             session=session,
-            model=model,
+            model=tokenizer_model,
             thresholds=thresholds,
             list_memory_files=self.memory_repo.list_memory_file_names,
             read_memory_file=self.memory_repo.read_memory_file,
@@ -129,7 +151,7 @@ class MemoryContextService:
         user_id: str,
         employee_id: str,
         session_id: str,
-        model: str,
+        tokenizer_model: str,
         thresholds: WindowThresholds,
     ) -> list[dict[str, Any]]:
         """构建发给 LLM 的消息列表（system + recent + active）。"""
@@ -137,7 +159,7 @@ class MemoryContextService:
             user_id,
             employee_id,
             session_id,
-            model,
+            tokenizer_model,
             thresholds,
         )
 
@@ -151,7 +173,7 @@ class MemoryContextService:
         resident_recent = self.prompt_composer.take_latest_rows_by_token_budget(
             rows_ascending=resident_recent_all,
             token_budget=thresholds.recent_raw_limit,
-            model=model,
+            model=tokenizer_model,
         )
 
         active_all = await self.message_repo.list_messages(
@@ -163,7 +185,7 @@ class MemoryContextService:
         active_messages = self.prompt_composer.take_latest_rows_by_token_budget(
             rows_ascending=active_all,
             token_budget=thresholds.dialogue_limit,
-            model=model,
+            model=tokenizer_model,
         )
 
         # 修复裁剪后可能出现的工具协议断裂（如孤立 tool result）。
@@ -193,7 +215,7 @@ class MemoryContextService:
         user_id: str,
         employee_id: str,
         session_id: str,
-        model: str,
+        tokenizer_model: str,
         thresholds: WindowThresholds,
     ) -> int:
         """估算常驻 system 静态部分的 token 消耗。"""
@@ -201,10 +223,10 @@ class MemoryContextService:
             user_id,
             employee_id,
             session_id,
-            model,
+            tokenizer_model,
             thresholds,
         )
-        return self.token_counter.count_tokens(text, model)
+        return self.token_counter.count_tokens(text, tokenizer_model)
 
     async def get_status(
         self,
@@ -215,7 +237,10 @@ class MemoryContextService:
     ) -> MemoryStatus:
         """聚合并返回会话当前记忆状态。"""
         session = await self.session_repo.get_session(user_id, session_id)
-        thresholds = await self._get_thresholds(user_id)
+        thresholds, tokenizer_model = await self._get_window_config(
+            user_id,
+            fallback_model=model,
+        )
         zone_tokens = await self.message_repo.sum_tokens_by_zone(user_id, session_id)
 
         resident_recent_all = await self.message_repo.list_messages(
@@ -227,10 +252,10 @@ class MemoryContextService:
         resident_recent_limited = self.prompt_composer.take_latest_rows_by_token_budget(
             rows_ascending=resident_recent_all,
             token_budget=thresholds.recent_raw_limit,
-            model=model,
+            model=tokenizer_model,
         )
         resident_recent_tokens = sum(
-            self.prompt_composer.row_token_count(row, model) for row in resident_recent_limited
+            self.prompt_composer.row_token_count(row, tokenizer_model) for row in resident_recent_limited
         )
 
         # 总 token = 常驻静态 + 常驻近期 + 对话区 + 缓冲区。
@@ -238,7 +263,7 @@ class MemoryContextService:
             user_id,
             employee_id,
             session_id,
-            model,
+            tokenizer_model,
             thresholds,
         )
         resident_tokens = resident_static_tokens + resident_recent_tokens
@@ -284,12 +309,15 @@ class MemoryContextService:
 
         async def refresh_system_message() -> str:
             """供工具链在写入记忆后刷新 system 提示词。"""
-            latest_thresholds = await self._get_thresholds(user_id)
+            latest_thresholds, latest_tokenizer_model = await self._get_window_config(
+                user_id,
+                fallback_model=llm_config.model,
+            )
             return await self._compose_resident_system_text(
                 user_id=user_id,
                 employee_id=employee_id,
                 session_id=session_id,
-                model=llm_config.model,
+                tokenizer_model=latest_tokenizer_model,
                 thresholds=latest_thresholds,
             )
 
@@ -297,7 +325,10 @@ class MemoryContextService:
             # 1) 写入用户消息，刷盘期间写入 buffer 分区，避免污染当前对话窗口。
             await self.session_repo.ensure_session(user_id, session_id)
             session = await self.session_repo.get_session(user_id, session_id)
-            thresholds = await self._get_thresholds(user_id)
+            thresholds, tokenizer_model = await self._get_window_config(
+                user_id,
+                fallback_model=llm_config.model,
+            )
 
             message_zone = "buffer" if session["is_flushing"] else "dialogue"
             await self.message_repo.add_message(
@@ -306,13 +337,13 @@ class MemoryContextService:
                 role="user",
                 content=user_message,
                 zone=message_zone,
-                token_count=self.token_counter.count_tokens(user_message, llm_config.model),
+                token_count=self.token_counter.count_tokens(user_message, tokenizer_model),
             )
             prompt_messages = await self._build_chat_messages(
                 user_id=user_id,
                 employee_id=employee_id,
                 session_id=session_id,
-                model=llm_config.model,
+                tokenizer_model=tokenizer_model,
                 thresholds=thresholds,
             )
 
@@ -335,7 +366,7 @@ class MemoryContextService:
                 user_id=user_id,
                 session_id=session_id,
                 events=live_tool_events,
-                model=llm_config.model,
+                tokenizer_model=tokenizer_model,
             )
 
             assistant_text = agent_result.assistant_text or ""
@@ -345,10 +376,10 @@ class MemoryContextService:
                 role="assistant",
                 content=assistant_text,
                 zone=assistant_zone,
-                token_count=self.token_counter.count_tokens(assistant_text, llm_config.model),
+                token_count=self.token_counter.count_tokens(assistant_text, tokenizer_model),
             )
 
-            status = await self.get_status(user_id, employee_id, session_id, llm_config.model)
+            status = await self.get_status(user_id, employee_id, session_id, tokenizer_model)
             flush_scheduled = False
             flush_trigger = int(status.thresholds.get("flush_trigger", thresholds.total_limit))
             if status.total_tokens >= flush_trigger and not session_after["is_flushing"]:
@@ -403,7 +434,10 @@ class MemoryContextService:
             if not session["is_flushing"]:
                 await self.session_repo.set_is_flushing(user_id, session_id, True)
 
-            thresholds = await self._get_thresholds(user_id)
+            thresholds, tokenizer_model = await self._get_window_config(
+                user_id,
+                fallback_model=llm_config.model,
+            )
 
             dialogue_rows = await self.message_repo.list_messages(
                 user_id,
@@ -419,7 +453,7 @@ class MemoryContextService:
                 user_id=user_id,
                 employee_id=employee_id,
                 session_id=session_id,
-                model=llm_config.model,
+                tokenizer_model=tokenizer_model,
                 thresholds=thresholds,
             )
 
@@ -427,12 +461,15 @@ class MemoryContextService:
 
         async def refresh_system_message() -> str:
             """归档阶段写入记忆文件后，实时刷新 system 文本。"""
-            latest_thresholds = await self._get_thresholds(user_id)
+            latest_thresholds, latest_tokenizer_model = await self._get_window_config(
+                user_id,
+                fallback_model=llm_config.model,
+            )
             return await self._compose_resident_system_text(
                 user_id=user_id,
                 employee_id=employee_id,
                 session_id=session_id,
-                model=llm_config.model,
+                tokenizer_model=latest_tokenizer_model,
                 thresholds=latest_thresholds,
             )
 
@@ -466,7 +503,7 @@ class MemoryContextService:
                 latest_dialogue = self.prompt_composer.take_latest_rows_from_desc_by_budget(
                     rows_descending=latest_dialogue_desc,
                     token_budget=thresholds.recent_raw_limit,
-                    model=llm_config.model,
+                    model=tokenizer_model,
                 )
 
                 await self.message_repo.clear_messages(user_id, session_id)
@@ -479,7 +516,7 @@ class MemoryContextService:
                         role=role,
                         content=content,
                         zone="resident_recent",
-                        token_count=self.token_counter.count_tokens(content, llm_config.model),
+                        token_count=self.token_counter.count_tokens(content, tokenizer_model),
                     )
 
                 await self.session_repo.update_workbench_summary(user_id, session_id, summary_text)
