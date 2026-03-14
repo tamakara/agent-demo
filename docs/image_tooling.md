@@ -5,7 +5,7 @@
 ## 目标
 
 - agent 可通过工具 `image_gen_edit` 调用 `seedream-4-5` 执行文生图。
-- 图片先保存到员工数据目录 `/employee/workspace`。
+- 图片先保存到员工数据目录 `/employee/{employee_id}/workspace`。
 - 生成完成后，可再调用工具 `copy_workspace_image_to_brand_library` 复制到用户目录 `/brand_library`。
 
 ## 工具清单
@@ -30,7 +30,7 @@
 
 返回（工具结果中的 JSON 字符串）包含：
 - `workspace_file_name`
-- `workspace_relative_path`（例如 `/employee/workspace/xxx.png`）
+- `workspace_relative_path`（例如 `/employee/1/workspace/xxx.png`）
 - `workspace_abs_path`
 - `model`（固定 `seedream-4-5`）
 - `endpoint`（`.../images/generations`）
@@ -56,7 +56,7 @@
 
 ## 推荐调用顺序
 
-1. 调用 `image_gen_edit` 生成图片并写入 `/employee/workspace`。
+1. 调用 `image_gen_edit` 生成图片并写入 `/employee/{employee_id}/workspace`。
 2. 从返回结果取 `workspace_file_name`。
 3. 调用 `copy_workspace_image_to_brand_library`，将同名文件复制到 `/brand_library`。
 
@@ -70,5 +70,5 @@
 - `.webp`
 
 展示范围：
-- `/employee/workspace`
+- `/employee/{employee_id}/workspace`
 - `/brand_library`

@@ -70,7 +70,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "name": "image_gen_edit",
             "description": (
                 "使用 seedream-4-5 执行文生图，"
-                "图片会保存到当前数字员工的 /employee/workspace 目录。"
+                "图片会保存到当前数字员工的 /employee/{employee_id}/workspace 目录。"
                 "若需要进入用户素材库，请继续调用 copy_workspace_image_to_brand_library。"
             ),
             "parameters": {
@@ -108,7 +108,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "copy_workspace_image_to_brand_library",
-            "description": "将 /employee/workspace 下的图片复制到用户 /brand_library 目录。",
+            "description": "将 /employee/{employee_id}/workspace 下的图片复制到用户 /brand_library 目录。",
             "parameters": {
                 "type": "object",
                 "properties": {

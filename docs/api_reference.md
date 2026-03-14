@@ -170,15 +170,12 @@ Body:
 Query:
 
 - `user_id` 必填
-- `employee_id` 可选（默认 `1`）
 
 Data:
 
-- `employee_id`
-- `session_id`
-- `data_dir`：员工数据目录绝对路径
-- `tree[]`：目录树（`path` + `is_dir`）
-- `files[]`：可编辑记忆文件（`file_name`、`relative_path`、`content`）
+- `data_dir`：用户数据目录绝对路径
+- `tree[]`：用户级目录树（`path` + `is_dir`），`employee` 下会展开全部员工目录，例如 `/employee/1/`、`/employee/2/`
+- `files[]`：可编辑记忆文件（`employee_id`、`file_name`、`relative_path`、`content`），`relative_path` 形如 `employee/1/notebook/人格设定.md`
 
 #### `GET /memory/file-preview`
 
@@ -189,13 +186,48 @@ Data:
 Query:
 
 - `user_id` 必填
-- `employee_id` 可选（默认 `1`）
-- `path` 必填（来自 `tree.path`，例如 `/employee/workspace/a.png`）
+- `path` 必填（来自 `tree.path`，例如 `/employee/1/workspace/a.png`）
 
 响应：
 
 - 直接返回图片文件流（`image/png`、`image/jpeg`、`image/webp` 等），
   不使用统一 JSON envelope。
+
+#### `GET /memory/file-content`
+
+用途：
+
+- 读取目录树中指定文本文件内容（支持 `.md` / `.txt`，用于前端文本编辑器加载）。
+
+Query:
+
+- `user_id` 必填
+- `path` 必填（来自 `tree.path`，例如 `/employee/1/notebook/人格设定.md` 或 `/skill_library/demo.txt`）
+
+Data:
+
+- `path`
+- `content`
+
+#### `PUT /memory/file-content`
+
+用途：
+
+- 按目录树路径保存文本文件内容（仅 `.md` / `.txt`）。
+
+Query:
+
+- `user_id` 必填
+- `path` 必填（来自 `tree.path`）
+
+Body:
+
+```json
+{
+  "content": "新的内容",
+  "mode": "overwrite"
+}
+```
 
 #### `PUT /memory/files/{file_name}`
 
@@ -254,7 +286,3 @@ Body:
 - `not_found`
 - `http_error`
 - `internal_error`
-
-## 5. 兼容说明
-
-旧路径 `/sessions` 与 `/session-messages` 已废弃。

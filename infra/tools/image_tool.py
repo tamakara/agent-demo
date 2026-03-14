@@ -253,7 +253,7 @@ class ImageToolService:
             "name_hint": normalized_name_hint,
             "image_paths": normalized_image_paths,
             "workspace_file_name": normalized_file_name,
-            "workspace_relative_path": f"/employee/workspace/{normalized_file_name}",
+            "workspace_relative_path": f"/employee/{employee_id}/workspace/{normalized_file_name}",
             "workspace_abs_path": str(target_path),
             "aspect_ratio": normalized_aspect_ratio,
             "resolution": normalized_resolution,
@@ -304,7 +304,7 @@ class ImageToolService:
 
         return {
             "workspace_file_name": normalized_workspace_file_name,
-            "workspace_relative_path": f"/employee/workspace/{normalized_workspace_file_name}",
+            "workspace_relative_path": f"/employee/{employee_id}/workspace/{normalized_workspace_file_name}",
             "brand_file_name": normalized_brand_file_name,
             "brand_relative_path": f"/brand_library/{normalized_brand_file_name}",
             "brand_abs_path": str(target_path),

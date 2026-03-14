@@ -9,6 +9,7 @@ import aiofiles
 
 from app.ports.repositories import MemoryFileRepositoryPort
 from common.errors import NotFoundError, ValidationError
+from common.ids import normalize_employee_id
 
 from .storage_layout import (
     ASSET_PLACEHOLDER_FILE,
@@ -71,7 +72,7 @@ PREFERRED_FILE_ORDER = [
     ASSET_PLACEHOLDER_FILE,
     SYSTEM_PROMPT_FILE,
 ]
-VISIBLE_TEXT_SUFFIXES = {".md"}
+VISIBLE_TEXT_SUFFIXES = {".md", ".txt"}
 VISIBLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp"}
 
 
@@ -181,14 +182,30 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         existing_sorted = sorted(set(existing_sorted), key=lambda x: x.lower())
         return self._sort_memory_file_names(existing_sorted)
 
+    @staticmethod
+    def _list_employee_ids(employee_root: Path) -> list[str]:
+        """扫描并返回用户目录下全部员工编号。"""
+        if not employee_root.exists():
+            return []
+        ids: set[str] = set()
+        for child in employee_root.iterdir():
+            if not child.is_dir():
+                continue
+            try:
+                ids.add(normalize_employee_id(child.name))
+            except ValidationError:
+                continue
+        return sorted(ids, key=lambda item: int(item))
+
     def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
         """列出用户目录三层结构，用于前端目录展示。"""
         self._ensure_user_scaffold(user_id, employee_id)
         brand_root = user_brand_library_dir(user_id)
         skill_root = user_skill_library_dir(user_id)
-        notebook_root = user_employee_notebook_dir(user_id, employee_id)
-        skills_root = user_employee_skills_dir(user_id, employee_id)
-        workspace_root = user_employee_workspace_dir(user_id, employee_id)
+        employee_root = user_employee_dir(user_id)
+        employee_ids = self._list_employee_ids(employee_root)
+        if not employee_ids:
+            employee_ids = [normalize_employee_id(employee_id)]
         entries: list[dict[str, object]] = []
         seen_paths: set[str] = set()
 
@@ -217,20 +234,29 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         )
 
         append_entry("/employee", is_dir=True)
-        append_entry("/employee/memory.md", is_dir=False)
+        for member_id in employee_ids:
+            # 用户级目录树需要展示全部 employee/{id} 子目录。
+            self._ensure_user_scaffold(user_id, member_id)
+            member_prefix = f"/employee/{member_id}"
+            notebook_root = user_employee_notebook_dir(user_id, member_id)
+            skills_root = user_employee_skills_dir(user_id, member_id)
+            workspace_root = user_employee_workspace_dir(user_id, member_id)
 
-        append_entry("/employee/notebook", is_dir=True)
-        append_direct_files(notebook_root, "/employee/notebook", suffixes=VISIBLE_TEXT_SUFFIXES)
+            append_entry(member_prefix, is_dir=True)
+            append_entry(f"{member_prefix}/memory.md", is_dir=False)
 
-        append_entry("/employee/skills", is_dir=True)
-        append_direct_files(skills_root, "/employee/skills", suffixes=VISIBLE_TEXT_SUFFIXES)
+            append_entry(f"{member_prefix}/notebook", is_dir=True)
+            append_direct_files(notebook_root, f"{member_prefix}/notebook", suffixes=VISIBLE_TEXT_SUFFIXES)
 
-        append_entry("/employee/workspace", is_dir=True)
-        append_direct_files(
-            workspace_root,
-            "/employee/workspace",
-            suffixes=VISIBLE_TEXT_SUFFIXES | VISIBLE_IMAGE_SUFFIXES,
-        )
+            append_entry(f"{member_prefix}/skills", is_dir=True)
+            append_direct_files(skills_root, f"{member_prefix}/skills", suffixes=VISIBLE_TEXT_SUFFIXES)
+
+            append_entry(f"{member_prefix}/workspace", is_dir=True)
+            append_direct_files(
+                workspace_root,
+                f"{member_prefix}/workspace",
+                suffixes=VISIBLE_TEXT_SUFFIXES | VISIBLE_IMAGE_SUFFIXES,
+            )
 
         append_entry("/skill_library", is_dir=True)
         append_direct_files(skill_root, "/skill_library", suffixes=VISIBLE_TEXT_SUFFIXES)
@@ -252,7 +278,12 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         root_name = path_parts[0]
         tail_parts = path_parts[1:]
         if root_name == "employee":
-            base_dir = user_employee_member_dir(user_id, employee_id).resolve()
+            if len(path_parts) < 3:
+                raise ValidationError("employee 数据路径必须形如 /employee/{employee_id}/<file>")
+            resolved_employee_id = normalize_employee_id(path_parts[1])
+            tail_parts = path_parts[2:]
+            self._ensure_user_scaffold(user_id, resolved_employee_id)
+            base_dir = user_employee_member_dir(user_id, resolved_employee_id).resolve()
         elif root_name == "brand_library":
             base_dir = user_brand_library_dir(user_id).resolve()
         elif root_name == "skill_library":

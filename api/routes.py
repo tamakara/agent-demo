@@ -6,6 +6,7 @@ import asyncio
 import mimetypes
 from collections.abc import AsyncIterator
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -29,6 +30,7 @@ from domain.models import LLMConfig
 
 FIXED_MAX_TOOL_ROUNDS = 64
 PREVIEWABLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".bmp", ".svg"}
+EDITABLE_TEXT_SUFFIXES = {".md", ".txt"}
 
 
 def _new_request_id() -> str:
@@ -340,29 +342,34 @@ def create_router(container: AppContainer) -> APIRouter:
     @router.get("/memory/files")
     async def memory_files(
         user_id: str = Query(..., min_length=1),
-        employee_id: str = Query(default="1", min_length=1),
     ) -> JSONResponse:
-        """列出数字员工记忆文件与数据目录树。"""
+        """列出用户级数据目录树与可编辑记忆文件。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            normalized_employee_id, session_id = await _resolve_employee(
-                container,
-                user_id=normalized_user_id,
-                employee_id=employee_id,
-                auto_create_default=True,
-            )
-            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
-            files = await container.memory_file_service.list_files(normalized_user_id, normalized_employee_id)
+            employees = await container.employee_service.list_employees(normalized_user_id, limit=300)
+            for item in employees:
+                await container.memory_file_service.ensure_employee_files(normalized_user_id, item.employee_id)
+
+            files_payload: list[dict[str, Any]] = []
+            for item in employees:
+                files = await container.memory_file_service.list_files(normalized_user_id, item.employee_id)
+                for file_item in files:
+                    serialized = asdict(file_item)
+                    relative = str(serialized.get("relative_path") or "").lstrip("/")
+                    serialized["employee_id"] = item.employee_id
+                    serialized["relative_path"] = (
+                        f"employee/{item.employee_id}/{relative}" if relative else f"employee/{item.employee_id}"
+                    )
+                    files_payload.append(serialized)
+
             return JSONResponse(
                 success_response(
                     request_id=request_id,
                     data={
-                        "employee_id": normalized_employee_id,
-                        "session_id": session_id,
-                        "data_dir": container.memory_file_service.data_root(normalized_user_id, normalized_employee_id),
-                        "tree": container.memory_file_service.list_data_paths(normalized_user_id, normalized_employee_id),
-                        "files": [asdict(item) for item in files],
+                        "data_dir": container.memory_file_service.data_root(normalized_user_id, "1"),
+                        "tree": container.memory_file_service.list_data_paths(normalized_user_id, "1"),
+                        "files": files_payload,
                     },
                 )
             )
@@ -373,22 +380,14 @@ def create_router(container: AppContainer) -> APIRouter:
     async def memory_file_preview(
         path: str = Query(..., min_length=1),
         user_id: str = Query(..., min_length=1),
-        employee_id: str = Query(default="1", min_length=1),
     ) -> FileResponse:
         """预览员工数据目录中的图片文件。"""
         request_id = _new_request_id()
         try:
             normalized_user_id = normalize_user_id(user_id)
-            normalized_employee_id, _ = await _resolve_employee(
-                container,
-                user_id=normalized_user_id,
-                employee_id=employee_id,
-                auto_create_default=True,
-            )
-            await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
             abs_path = container.memory_file_service.resolve_data_file_path(
                 normalized_user_id,
-                normalized_employee_id,
+                "1",
                 path,
             )
             suffix = abs_path.rsplit(".", 1)[-1].lower() if "." in abs_path else ""
@@ -397,6 +396,63 @@ def create_router(container: AppContainer) -> APIRouter:
                 raise ValidationError(f"仅支持图片预览：{path}")
             media_type = mimetypes.guess_type(abs_path)[0] or "application/octet-stream"
             return FileResponse(path=abs_path, media_type=media_type)
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
+    @router.get("/memory/file-content")
+    async def memory_file_content(
+        path: str = Query(..., min_length=1),
+        user_id: str = Query(..., min_length=1),
+    ) -> JSONResponse:
+        """读取目录树中的文本文件内容。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            abs_path = container.memory_file_service.resolve_data_file_path(
+                normalized_user_id,
+                "1",
+                path,
+            )
+            if Path(abs_path).suffix.lower() not in EDITABLE_TEXT_SUFFIXES:
+                raise ValidationError(f"仅支持文本文件读取（.md/.txt）：{path}")
+            try:
+                content = Path(abs_path).read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValidationError(f"文本文件编码不支持 UTF-8：{path}") from exc
+            return JSONResponse(success_response(request_id=request_id, data={"path": path, "content": content}))
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
+    @router.put("/memory/file-content")
+    async def update_memory_file_content(
+        body: MemoryFileUpdateRequest,
+        path: str = Query(..., min_length=1),
+        user_id: str = Query(..., min_length=1),
+    ) -> JSONResponse:
+        """更新目录树中的文本文件内容。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            abs_path = container.memory_file_service.resolve_data_file_path(
+                normalized_user_id,
+                "1",
+                path,
+            )
+            file_path = Path(abs_path)
+            if file_path.suffix.lower() not in EDITABLE_TEXT_SUFFIXES:
+                raise ValidationError(f"仅支持文本文件写入（.md/.txt）：{path}")
+
+            if body.mode == "append":
+                append_text = body.content
+                if append_text and not append_text.endswith("\n"):
+                    append_text = f"{append_text}\n"
+                with file_path.open("a", encoding="utf-8") as output_file:
+                    output_file.write(append_text)
+            else:
+                file_path.write_text(body.content, encoding="utf-8")
+
+            latest = file_path.read_text(encoding="utf-8")
+            return JSONResponse(success_response(request_id=request_id, data={"path": path, "content": latest}))
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 

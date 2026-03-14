@@ -95,13 +95,12 @@ data/user/<user_id>/
 - `employee/<employee_id>/workspace/`：员工工作空间目录。
 - `employee/<employee_id>/skills/`：员工技能文件目录。
 
-接口可见记忆文件（`GET /memory/files`）来自当前员工目录，`files[]` 中返回逻辑文件名 + 相对路径：
+接口可见记忆文件（`GET /memory/files`）按用户维度聚合，返回所有员工目录下的记忆文件：
 
-- `memory.md`
-- `notebook/人格设定.md`
-- `notebook/日程表.md`
-- `notebook/工作手册.md`
-- `notebook/素材库笔记.md`
+- `employee/1/memory.md`
+- `employee/1/notebook/人格设定.md`
+- `employee/2/memory.md`
+- `employee/2/notebook/日程表.md`
 
 ## 3. 分区语义（messages.zone）
 

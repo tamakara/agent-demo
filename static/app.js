@@ -5,6 +5,7 @@ const CONFIG = {
 const TOKENIZER_OPTIONS = ["gemini-3-flash", "gemini-3.1-pro"];
 const DEFAULT_TOKENIZER_MODEL = "gemini-3-flash";
 const IMAGE_FILE_EXT_PATTERN = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
+const EDITABLE_TEXT_EXT_PATTERN = /\.(md|txt)$/i;
 
 const state = {
   userId: localStorage.getItem(CONFIG.storageKey) || "",
@@ -14,6 +15,9 @@ const state = {
   files: [],
   dataTree: [],
   activeFile: null,
+  selectedFile: null,
+  textFileCache: {},
+  loadingTextFilePath: "",
   expandedDirs: new Set(),
   isChatting: false,
 };
@@ -35,15 +39,22 @@ const els = {
 const toEditableRelativePath = (path) => {
   const raw = String(path || "").trim();
   if (!raw) return "";
-  if (raw.startsWith("/employee/")) return raw.slice("/employee/".length);
-  if (raw.startsWith("employee/")) return raw.slice("employee/".length);
-  return raw;
+  return raw.startsWith("/") ? raw.slice(1) : raw;
+};
+
+const extractEmployeeIdFromTreePath = (path) => {
+  const normalized = toEditableRelativePath(path);
+  if (!normalized) return "";
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length < 2 || parts[0] !== "employee") return "";
+  const candidate = String(parts[1] || "").trim();
+  return /^[0-9]+$/.test(candidate) ? candidate : "";
 };
 
 const findEditableFile = (path) => {
   const normalized = toEditableRelativePath(path);
   if (!normalized) return null;
-  return state.files.find(f => f.relative_path === normalized || f.file_name === normalized) || null;
+  return state.files.find(f => String(f.relative_path || "").trim() === normalized) || null;
 };
 
 const fileNameFromPath = (path) => {
@@ -54,15 +65,31 @@ const fileNameFromPath = (path) => {
 };
 
 const isImageTreePath = (path) => IMAGE_FILE_EXT_PATTERN.test(String(path || ""));
-const isMarkdownTreePath = (path) => /\.md$/i.test(String(path || "").trim());
+const isEditableTextTreePath = (path) => EDITABLE_TEXT_EXT_PATTERN.test(String(path || "").trim());
+const fileKindFromTreePath = (path) => {
+  if (isImageTreePath(path)) return "image";
+  if (isEditableTextTreePath(path)) return "text";
+  return "other";
+};
+
+const buildSelectedFile = (path) => {
+  const normalized = String(path || "").trim();
+  if (!normalized) return null;
+  return {
+    path: normalized,
+    kind: fileKindFromTreePath(normalized),
+    name: fileNameFromPath(normalized),
+  };
+};
 
 // =================API 封装库=================
 const api = {
   async req(method, path, body = null, query = {}) {
-    if (state.userId) query.user_id = state.userId;
-    if (state.activeEmployeeId) query.employee_id = state.activeEmployeeId;
+    const requestQuery = { ...(query || {}) };
+    if (state.userId && !requestQuery.user_id) requestQuery.user_id = state.userId;
+    if (state.activeEmployeeId && !requestQuery.employee_id) requestQuery.employee_id = state.activeEmployeeId;
     
-    const qs = new URLSearchParams(query).toString();
+    const qs = new URLSearchParams(requestQuery).toString();
     const url = `${path}${qs ? '?' + qs : ''}`;
     
     const res = await fetch(url, {
@@ -83,11 +110,7 @@ const api = {
 // =================UI 渲染中心=================
 const ui = {
   buildImagePreviewUrl(treePath, { bustCache = true } = {}) {
-    const query = new URLSearchParams({
-      user_id: state.userId,
-      employee_id: state.activeEmployeeId,
-      path: String(treePath || ""),
-    });
+    const query = new URLSearchParams({ user_id: state.userId, path: String(treePath || "") });
     if (bustCache) query.set("ts", String(Date.now()));
     return `/memory/file-preview?${query.toString()}`;
   },
@@ -119,7 +142,7 @@ const ui = {
   },
 
   appendImageToChat(imageInfo) {
-    if (!imageInfo?.path || !state.userId || !state.activeEmployeeId) return;
+    if (!imageInfo?.path || !state.userId) return;
     const tpl = $("chatItemTemplate").content.cloneNode(true);
     const item = tpl.querySelector(".chat-item");
     item.classList.add("assistant");
@@ -196,13 +219,14 @@ const ui = {
     const buildNode = (entry, depth = 0) => {
       const isExpanded = state.expandedDirs.has(entry.path);
       const parts = entry.path.split('/').filter(Boolean);
-      const isRootFolder = entry.path.startsWith('/') && parts.length === 1;
-      const isEmployeeSecondDir = entry.is_dir && parts[0] === "employee" && parts.length === 2;
-      const displayName = isRootFolder
-        ? entry.path
-        : (isEmployeeSecondDir ? `/${parts[1]}` : (parts[parts.length - 1] || entry.path));
+      const isRootFolder = entry.is_dir && entry.path.startsWith('/') && parts.length === 1;
+      const isEmployeeMemberFolder = entry.is_dir && parts[0] === "employee" && parts.length === 2;
+      let displayName = parts[parts.length - 1] || entry.path;
+      if (isRootFolder) displayName = `${parts[0]}/`;
+      else if (isEmployeeMemberFolder) displayName = `${parts[1]}/`;
+      else if (entry.is_dir) displayName = `${displayName}/`;
       const row = document.createElement("div");
-      row.className = `tree-row ${entry.is_dir ? 'dir' : 'file'} ${state.activeFile === entry.path ? 'active' : ''}`;
+      row.className = `tree-row ${entry.is_dir ? 'dir' : 'file'} ${state.selectedFile?.path === entry.path ? 'active' : ''}`;
       row.style.paddingLeft = `${depth * 12 + 8}px`;
       row.innerHTML = `<span>${entry.is_dir ? (isExpanded ? '📂' : '📁') : '📄'}</span> <span>${displayName}</span>`;
       
@@ -211,9 +235,7 @@ const ui = {
           isExpanded ? state.expandedDirs.delete(entry.path) : state.expandedDirs.add(entry.path);
           ui.renderTree();
         } else {
-          state.activeFile = entry.path;
-          ui.updateEditor();
-          ui.renderTree();
+          logic.selectFile(entry.path);
         }
       };
       els.tree.appendChild(row);
@@ -229,9 +251,11 @@ const ui = {
   },
 
   updateEditor() {
-    const activePath = String(state.activeFile || "");
-    const file = findEditableFile(state.activeFile);
-    const imageSelected = !!activePath && isImageTreePath(activePath) && !isMarkdownTreePath(activePath);
+    const selected = state.selectedFile;
+    const activePath = String(selected?.path || "");
+    const selectedKind = String(selected?.kind || "none");
+    const file = findEditableFile(activePath);
+    const cachedTextContent = state.textFileCache[activePath];
     const globallyLocked = !state.userId || state.isChatting;
 
     // 每次更新编辑区先回到“文本模式”，仅在明确是图片文件时再切换到预览模式。
@@ -242,7 +266,7 @@ const ui = {
     els.fileImagePreviewPath.textContent = "";
     els.fileContent.style.display = "";
 
-    if (imageSelected && state.userId && state.activeEmployeeId) {
+    if (selectedKind === "image" && state.userId) {
       const displayName = fileNameFromPath(activePath) || "图片文件";
       els.fileName.textContent = displayName;
       els.fileImagePreview.hidden = false;
@@ -255,10 +279,25 @@ const ui = {
       return;
     }
 
-    if (file) {
-      els.fileName.textContent = file.file_name;
-      els.fileContent.value = file.content;
-      els.btnSaveFile.disabled = globallyLocked;
+    if (selectedKind === "text") {
+      els.fileName.textContent = fileNameFromPath(activePath) || "未选择文件";
+      if (file && typeof file.content === "string") {
+        els.fileContent.value = file.content;
+        els.btnSaveFile.disabled = globallyLocked;
+        return;
+      }
+      if (state.loadingTextFilePath === activePath) {
+        els.fileContent.value = "正在加载文件内容...";
+        els.btnSaveFile.disabled = true;
+        return;
+      }
+      if (typeof cachedTextContent === "string") {
+        els.fileContent.value = cachedTextContent;
+        els.btnSaveFile.disabled = globallyLocked;
+        return;
+      }
+      els.fileContent.value = "文本文件加载失败，请重试。";
+      els.btnSaveFile.disabled = true;
       return;
     }
 
@@ -333,12 +372,6 @@ const logic = {
     const zone = String(message.zone || "");
     const content = message.content;
     const parsedPayload = this.parseJsonObject(content);
-    const parsedEventName = String(parsedPayload?.event || "").trim();
-
-    // 兼容旧数据：即使不在 tool 分区，只要内容是工具事件也按工具消息渲染。
-    if (parsedEventName === "tool_call" || parsedEventName === "tool_result") {
-      return { type: parsedEventName, payload: parsedPayload };
-    }
 
     // 工具区历史消息需要恢复为 tool_call/tool_result 事件视图，
     // 避免被当作 assistant 普通文本渲染。
@@ -355,6 +388,41 @@ const logic = {
   parseIntOrNull(value) {
     const parsed = parseInt(String(value ?? "").trim(), 10);
     return Number.isFinite(parsed) ? parsed : null;
+  },
+
+  async ensureTextFileLoaded(path) {
+    const targetPath = String(path || "").trim();
+    if (!targetPath || !isEditableTextTreePath(targetPath)) return;
+    const editableFile = findEditableFile(targetPath);
+    if (editableFile && typeof editableFile.content === "string") {
+      state.textFileCache[targetPath] = editableFile.content;
+      return;
+    }
+    if (typeof state.textFileCache[targetPath] === "string") return;
+
+    state.loadingTextFilePath = targetPath;
+    ui.updateEditor();
+    try {
+      const data = await api.get("/memory/file-content", { path: targetPath });
+      state.textFileCache[targetPath] = String(data?.content ?? "");
+    } catch (err) {
+      ui.appendChat("error", "读取文件失败: " + err.message);
+    } finally {
+      if (state.loadingTextFilePath === targetPath) state.loadingTextFilePath = "";
+      ui.updateEditor();
+    }
+  },
+
+  async selectFile(path) {
+    const selected = buildSelectedFile(path);
+    if (!selected) return;
+    state.activeFile = selected.path;
+    state.selectedFile = selected;
+    ui.renderTree();
+    ui.updateEditor();
+    if (selected.kind === "text") {
+      await this.ensureTextFileLoaded(selected.path);
+    }
   },
 
   async init() {
@@ -382,8 +450,14 @@ const logic = {
       if(!state.employees.length) await logic.createEmployee();
       
       state.activeEmployeeId = state.employees[0]?.employee_id || "";
+      state.activeFile = null;
+      state.selectedFile = null;
+      state.files = [];
+      state.dataTree = [];
+      state.textFileCache = {};
+      state.loadingTextFilePath = "";
       this.renderEmpSelect();
-      await this.loadContext();
+      await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
     } catch (err) {
       ui.appendChat('error', "用户切换失败: " + err.message);
     }
@@ -434,13 +508,15 @@ const logic = {
   },
 
   async resetMemory() {
-    if (!state.userId || !state.activeEmployeeId) return ui.appendChat('error', "请先选择用户与员工");
+    const selectedEmployeeId = extractEmployeeIdFromTreePath(state.selectedFile?.path);
+    const targetEmployeeId = selectedEmployeeId || state.activeEmployeeId;
+    if (!state.userId || !targetEmployeeId) return ui.appendChat('error', "请先选择用户与员工");
     const confirmed = window.confirm("确认重置记忆吗？将重置 memory.md 与 notebook 下的记忆文件。");
     if (!confirmed) return;
-    await api.post("/memory/reset");
+    await api.post("/memory/reset", null, { employee_id: targetEmployeeId });
     await this.refreshFiles();
     await this.refreshStatus();
-    ui.appendChat("meta", "记忆已重置（memory.md 与 notebook 下文件）");
+    ui.appendChat("meta", `员工 #${targetEmployeeId} 记忆已重置（memory.md 与 notebook 下文件）`);
   },
 
   async createEmployee() {
@@ -456,10 +532,9 @@ const logic = {
     ).join('');
   },
 
-  async loadContext() {
+  async loadContext({ refreshFiles = false, resetExpandedDirs = false } = {}) {
     if(!state.activeEmployeeId) return;
     try {
-      state.expandedDirs = new Set();
       const history = await api.get("/employee-messages", { limit: "50" });
       els.chatLog.innerHTML = "";
       (history.messages || []).forEach(m => {
@@ -471,7 +546,9 @@ const logic = {
         if (imageInfo) ui.appendImageToChat(imageInfo);
       });
 
-      await this.refreshFiles();
+      if (refreshFiles) {
+        await this.refreshFiles({ resetExpandedDirs });
+      }
       
       await this.refreshStatus();
     } catch (err) {
@@ -479,11 +556,23 @@ const logic = {
     }
   },
 
-  async refreshFiles() {
-    const currentActive = state.activeFile;
+  async refreshFiles({ resetExpandedDirs = false } = {}) {
+    if (resetExpandedDirs) state.expandedDirs = new Set();
+    const currentSelectedPath = String(state.selectedFile?.path || "");
     const mem = await api.get("/memory/files");
     state.files = mem.files || [];
     state.dataTree = mem.tree || [];
+    const currentPaths = new Set(
+      state.dataTree
+        .filter(entry => !entry.is_dir)
+        .map(entry => String(entry.path || ""))
+    );
+    Object.keys(state.textFileCache).forEach((path) => {
+      if (!currentPaths.has(path)) delete state.textFileCache[path];
+    });
+    if (state.loadingTextFilePath && !currentPaths.has(state.loadingTextFilePath)) {
+      state.loadingTextFilePath = "";
+    }
     if (state.expandedDirs.size === 0) {
       state.expandedDirs = new Set(
         state.dataTree
@@ -491,9 +580,15 @@ const logic = {
           .map(entry => entry.path)
       );
     }
-    if (currentActive) {
-      const stillExists = state.dataTree.some(entry => entry.path === currentActive && !entry.is_dir);
-      state.activeFile = stillExists ? currentActive : null;
+    if (currentSelectedPath) {
+      const stillExists = state.dataTree.some(entry => entry.path === currentSelectedPath && !entry.is_dir);
+      if (stillExists) {
+        state.activeFile = currentSelectedPath;
+        state.selectedFile = buildSelectedFile(currentSelectedPath);
+      } else {
+        state.activeFile = null;
+        state.selectedFile = null;
+      }
     }
     ui.renderTree();
     ui.updateEditor();
@@ -565,7 +660,7 @@ const logic = {
     };
 
     els.empSelect.onchange = (e) => { state.activeEmployeeId = e.target.value; this.loadContext(); };
-    els.btnNewEmp.onclick = async () => { await this.createEmployee(); await this.loadContext(); };
+    els.btnNewEmp.onclick = async () => { await this.createEmployee(); await this.loadContext({ refreshFiles: true }); };
     els.btnReloadEmp.onclick = () => this.switchUser();
     els.btnReloadFiles.onclick = async () => {
       try {
@@ -584,15 +679,24 @@ const logic = {
 
     els.btnSaveFile.onclick = async () => {
       try {
-        if(!state.activeFile) return ui.appendChat("error", "未选择文件");
-        const file = findEditableFile(state.activeFile);
-        if (!file) return ui.appendChat("error", "该文件不支持直接编辑");
+        const selected = state.selectedFile;
+        if(!selected?.path) return ui.appendChat("error", "未选择文件");
+        if (selected.kind !== "text") {
+          return ui.appendChat("error", "当前文件不可编辑");
+        }
 
         const content = els.fileContent.value;
-        const result = await api.put(`/memory/files/${encodeURIComponent(file.file_name)}`, { content, mode: "overwrite" });
-        file.content = typeof result?.content === "string" ? result.content : content;
+        const result = await api.put(
+          "/memory/file-content",
+          { content, mode: "overwrite" },
+          { path: selected.path }
+        );
+        const latestContent = typeof result?.content === "string" ? result.content : content;
+        const file = findEditableFile(selected.path);
+        if (file) file.content = latestContent;
+        state.textFileCache[selected.path] = latestContent;
         await this.refreshFiles();
-        ui.appendChat("meta", `保存成功：${file.file_name}`);
+        ui.appendChat("meta", `保存成功：${selected.path}`);
       } catch (err) {
         ui.appendChat("error", "保存修改失败: " + err.message);
       }
