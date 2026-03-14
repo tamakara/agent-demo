@@ -151,6 +151,83 @@ def create_router(container: AppContainer) -> APIRouter:
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 
+    @router.post("/employees/{employee_id}/reset")
+    async def reset_employee(
+        employee_id: str,
+        user_id: str = Query(..., min_length=1),
+    ) -> JSONResponse:
+        """重置指定数字员工（删除后同编号重建）。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            normalized_employee_id = normalize_employee_id(employee_id)
+            recreated = await container.employee_service.reset_employee(
+                normalized_user_id,
+                normalized_employee_id,
+            )
+            await container.memory_file_service.delete_employee_data(
+                normalized_user_id,
+                normalized_employee_id,
+            )
+            await container.memory_file_service.ensure_employee_files(
+                normalized_user_id,
+                normalized_employee_id,
+            )
+            files = await container.memory_file_service.list_files(
+                normalized_user_id,
+                normalized_employee_id,
+            )
+            employees = await container.employee_service.list_employees(normalized_user_id, limit=300)
+            return JSONResponse(
+                success_response(
+                    request_id=request_id,
+                    data={
+                        "ok": True,
+                        "employee": asdict(recreated),
+                        "employees": [asdict(item) for item in employees],
+                        "files": [asdict(item) for item in files],
+                        "tree": container.memory_file_service.list_data_paths(
+                            normalized_user_id,
+                            normalized_employee_id,
+                        ),
+                    },
+                )
+            )
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
+    @router.delete("/employees/{employee_id}")
+    async def delete_employee(
+        employee_id: str,
+        user_id: str = Query(..., min_length=1),
+    ) -> JSONResponse:
+        """删除指定数字员工。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            normalized_employee_id = normalize_employee_id(employee_id)
+            deleted = await container.employee_service.delete_employee(
+                normalized_user_id,
+                normalized_employee_id,
+            )
+            await container.memory_file_service.delete_employee_data(
+                normalized_user_id,
+                normalized_employee_id,
+            )
+            remaining = await container.employee_service.list_employees(normalized_user_id, limit=300)
+            return JSONResponse(
+                success_response(
+                    request_id=request_id,
+                    data={
+                        "deleted": True,
+                        "employee": asdict(deleted),
+                        "employees": [asdict(item) for item in remaining],
+                    },
+                )
+            )
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
     @router.get("/employee-messages")
     async def get_employee_messages(
         user_id: str = Query(..., min_length=1),

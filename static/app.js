@@ -28,9 +28,10 @@ const $ = (id) => document.getElementById(id);
 const els = {
   userId: $("userIdInput"), btnUser: $("switchUserBtn"),
   chatLog: $("chatLog"), chatForm: $("chatForm"), msgInput: $("messageInput"),
-  empSelect: $("employeeSelect"), btnNewEmp: $("newEmployeeBtn"), btnReloadEmp: $("reloadEmployeeBtn"),
+  empSelect: $("employeeSelect"), btnNewEmp: $("newEmployeeBtn"), btnResetEmp: $("resetEmployeeBtn"),
+  btnDeleteEmp: $("deleteEmployeeBtn"), btnReloadEmp: $("reloadEmployeeBtn"),
   btnUploadBrandLibrary: $("uploadBrandLibraryBtn"), uploadBrandLibraryInput: $("uploadBrandLibraryInput"),
-  btnResetMemory: $("resetMemoryBtn"), btnReloadFiles: $("reloadFilesBtn"),
+  btnReloadFiles: $("reloadFilesBtn"),
   tree: $("directoryTree"), fileContent: $("fileContent"), fileName: $("activeFileName"),
   btnDeleteFile: $("deleteFileBtn"), btnSaveFile: $("saveFileBtn"),
   fileImagePreview: $("fileImagePreview"), fileImagePreviewImg: $("fileImagePreviewImg"), fileImagePreviewPath: $("fileImagePreviewPath"),
@@ -43,15 +44,6 @@ const toEditableRelativePath = (path) => {
   const raw = String(path || "").trim();
   if (!raw) return "";
   return raw.startsWith("/") ? raw.slice(1) : raw;
-};
-
-const extractEmployeeIdFromTreePath = (path) => {
-  const normalized = toEditableRelativePath(path);
-  if (!normalized) return "";
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts.length < 2 || parts[0] !== "employee") return "";
-  const candidate = String(parts[1] || "").trim();
-  return /^[0-9]+$/.test(candidate) ? candidate : "";
 };
 
 const findEditableFile = (path) => {
@@ -357,11 +349,16 @@ const ui = {
   lockUI(locked) {
     const disabled = !state.userId || locked;
     [
-      els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnUploadBrandLibrary, els.uploadBrandLibraryInput,
-      els.btnResetMemory, els.btnReloadFiles,
+      els.empSelect, els.btnNewEmp, els.btnResetEmp, els.btnDeleteEmp, els.btnReloadEmp,
+      els.btnUploadBrandLibrary, els.uploadBrandLibraryInput, els.btnReloadFiles,
       els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), els.btnDeleteFile, els.btnSaveFile,
       els.msgInput, els.chatForm.querySelector("button")
     ].forEach(el => el.disabled = disabled);
+    if (!disabled) {
+      const hasActiveEmployee = !!String(state.activeEmployeeId || "").trim();
+      els.btnResetEmp.disabled = !hasActiveEmployee;
+      els.btnDeleteEmp.disabled = !hasActiveEmployee;
+    }
     if (!disabled) ui.updateEditor();
     if (!state.userId) els.msgInput.placeholder = "请先配置并应用用户 ID...";
   }
@@ -543,16 +540,46 @@ const logic = {
     await this.refreshStatus();
   },
 
-  async resetMemory() {
-    const selectedEmployeeId = extractEmployeeIdFromTreePath(state.selectedFile?.path);
-    const targetEmployeeId = selectedEmployeeId || state.activeEmployeeId;
+  async resetEmployee() {
+    const targetEmployeeId = String(state.activeEmployeeId || "").trim();
     if (!state.userId || !targetEmployeeId) return ui.appendChat('error', "请先选择用户与员工");
-    const confirmed = window.confirm("确认重置记忆吗？将重置 memory.md 与 notebook 下的记忆文件。");
+    const confirmed = window.confirm("确认重置员工吗？将重置该员工全部数据（记忆、workspace、skills 等），效果等同删除后同编号重建。");
     if (!confirmed) return;
-    await api.post("/memory/reset", null, { employee_id: targetEmployeeId });
-    await this.refreshFiles();
-    await this.refreshStatus();
-    ui.appendChat("meta", `员工 #${targetEmployeeId} 记忆已重置（memory.md 与 notebook 下文件）`);
+    await api.post(`/employees/${encodeURIComponent(targetEmployeeId)}/reset`, null);
+    const employeesData = await api.get("/employees");
+    state.employees = employeesData.employees || [];
+    const exists = state.employees.some(item => item.employee_id === targetEmployeeId);
+    state.activeEmployeeId = exists ? targetEmployeeId : (state.employees[0]?.employee_id || "");
+    this.renderEmpSelect();
+    await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
+    ui.appendChat("meta", `员工 #${targetEmployeeId} 已重置（同编号重建）`);
+  },
+
+  async deleteEmployee() {
+    const targetEmployeeId = String(state.activeEmployeeId || "").trim();
+    if (!state.userId || !targetEmployeeId) return ui.appendChat("error", "请先选择要删除的员工");
+    const confirmed = window.confirm(`确认删除员工 #${targetEmployeeId} 吗？该员工的消息与 employee/${targetEmployeeId} 目录数据将被删除。`);
+    if (!confirmed) return;
+    await api.del(`/employees/${encodeURIComponent(targetEmployeeId)}`);
+
+    const employeesData = await api.get("/employees");
+    state.employees = employeesData.employees || [];
+    state.activeEmployeeId = state.employees[0]?.employee_id || "";
+    state.activeFile = null;
+    state.selectedFile = null;
+    state.textFileCache = {};
+    state.loadingTextFilePath = "";
+    this.renderEmpSelect();
+
+    if (!state.activeEmployeeId) {
+      els.chatLog.innerHTML = "";
+      await this.refreshFiles({ resetExpandedDirs: true });
+      ui.appendChat("meta", `员工 #${targetEmployeeId} 已删除`);
+      return;
+    }
+
+    await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
+    ui.appendChat("meta", `员工 #${targetEmployeeId} 已删除`);
   },
 
   async deleteSelectedFile() {
@@ -606,6 +633,12 @@ const logic = {
     els.empSelect.innerHTML = state.employees.map(e => 
       `<option value="${e.employee_id}" ${e.employee_id === state.activeEmployeeId ? 'selected' : ''}>员工 #${e.employee_id}</option>`
     ).join('');
+    const disabled = !state.userId || state.isChatting;
+    const hasEmployees = state.employees.length > 0;
+    const hasActiveEmployee = !!String(state.activeEmployeeId || "").trim();
+    els.empSelect.disabled = disabled || !hasEmployees;
+    els.btnResetEmp.disabled = disabled || !hasActiveEmployee;
+    els.btnDeleteEmp.disabled = disabled || !hasActiveEmployee;
   },
 
   async loadContext({ refreshFiles = false, resetExpandedDirs = false } = {}) {
@@ -737,6 +770,20 @@ const logic = {
 
     els.empSelect.onchange = (e) => { state.activeEmployeeId = e.target.value; this.loadContext(); };
     els.btnNewEmp.onclick = async () => { await this.createEmployee(); await this.loadContext({ refreshFiles: true }); };
+    els.btnResetEmp.onclick = async () => {
+      try {
+        await this.resetEmployee();
+      } catch (err) {
+        ui.appendChat('error', "重置员工失败: " + err.message);
+      }
+    };
+    els.btnDeleteEmp.onclick = async () => {
+      try {
+        await this.deleteEmployee();
+      } catch (err) {
+        ui.appendChat('error', "删除员工失败: " + err.message);
+      }
+    };
     els.btnReloadEmp.onclick = () => this.switchUser();
     els.btnReloadFiles.onclick = async () => {
       try {
@@ -760,14 +807,6 @@ const logic = {
         e.target.value = "";
       }
     };
-    els.btnResetMemory.onclick = async () => {
-      try {
-        await this.resetMemory();
-      } catch (err) {
-        ui.appendChat('error', "重置记忆失败: " + err.message);
-      }
-    };
-
     els.btnDeleteFile.onclick = async () => {
       try {
         await this.deleteSelectedFile();

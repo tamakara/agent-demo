@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Literal, cast
 
@@ -91,20 +92,24 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             raise ValidationError("data_path 不能是根目录")
         return normalized
 
-    def _ensure_user_scaffold(self, user_id: str, employee_id: str) -> None:
-        """确保用户目录骨架与指定员工目录存在。"""
+    @staticmethod
+    def _ensure_user_root_dirs(user_id: str) -> None:
+        """确保用户根目录与公共一级目录存在。"""
         user_root = user_root_dir(user_id)
         employee_root = user_employee_dir(user_id)
         brand_dir = user_brand_library_dir(user_id)
         skill_dir = user_skill_library_dir(user_id)
-        employee_dir = user_employee_member_dir(user_id, employee_id)
 
         user_root.mkdir(parents=True, exist_ok=True)
+        for sub_dir in [employee_root, brand_dir, skill_dir]:
+            sub_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ensure_user_scaffold(self, user_id: str, employee_id: str) -> None:
+        """确保用户目录骨架与指定员工目录存在。"""
+        self._ensure_user_root_dirs(user_id)
+        employee_dir = user_employee_member_dir(user_id, employee_id)
 
         scaffold_dirs = [
-            employee_root,
-            brand_dir,
-            skill_dir,
             employee_dir,
             user_employee_notebook_dir(user_id, employee_id),
             user_employee_workspace_dir(user_id, employee_id),
@@ -134,13 +139,19 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         if memory_file.exists() and memory_file.is_file():
             memory_file.unlink()
 
-        notebook_dirs = [user_employee_notebook_dir(user_id, employee_id)]
-        for notebook_dir in notebook_dirs:
-            if not notebook_dir.exists():
+        notebook_dir = user_employee_notebook_dir(user_id, employee_id)
+        if not notebook_dir.exists():
+            return
+        # 仅删除 notebook 目录内的 Markdown 文件（含子目录），
+        # 避免误伤 workspace/skills 或其它非记忆文件。
+        notebook_root = notebook_dir.resolve()
+        for item in notebook_dir.rglob("*.md"):
+            if not item.is_file():
                 continue
-            for item in notebook_dir.glob("*.md"):
-                if item.is_file():
-                    item.unlink()
+            resolved_item = item.resolve()
+            if resolved_item != notebook_root and notebook_root not in resolved_item.parents:
+                continue
+            item.unlink()
 
     async def ensure_memory_files_exist(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> None:
         """确保数字员工记忆文件存在，不覆盖已有内容。"""
@@ -152,6 +163,16 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         self._ensure_user_scaffold(user_id, employee_id)
         self._clear_memory_files(user_id=user_id, employee_id=employee_id)
         return self._write_initial_memory_files(user_id=user_id, employee_id=employee_id, overwrite=True)
+
+    async def delete_employee_data(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> None:
+        """删除指定员工目录下的全部文件与子目录。"""
+        self._ensure_user_scaffold(user_id, employee_id)
+        employee_root = user_employee_dir(user_id).resolve()
+        employee_dir = user_employee_member_dir(user_id, employee_id).resolve()
+        if employee_dir == employee_root or employee_root not in employee_dir.parents:
+            raise ValidationError("员工目录路径非法")
+        if employee_dir.exists():
+            shutil.rmtree(employee_dir)
 
     @staticmethod
     def _sort_memory_file_names(existing: list[str]) -> list[str]:
@@ -199,13 +220,11 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
 
     def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
         """列出用户目录三层结构，用于前端目录展示。"""
-        self._ensure_user_scaffold(user_id, employee_id)
+        self._ensure_user_root_dirs(user_id)
         brand_root = user_brand_library_dir(user_id)
         skill_root = user_skill_library_dir(user_id)
         employee_root = user_employee_dir(user_id)
         employee_ids = self._list_employee_ids(employee_root)
-        if not employee_ids:
-            employee_ids = [normalize_employee_id(employee_id)]
         entries: list[dict[str, object]] = []
         seen_paths: set[str] = set()
 
@@ -256,7 +275,7 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
 
     def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:
         """返回用户数据目录绝对路径。"""
-        self._ensure_user_scaffold(user_id, employee_id)
+        self._ensure_user_root_dirs(user_id)
         return str(user_root_dir(user_id).resolve())
 
     def resolve_data_file_path(self, user_id: str, employee_id: str = EMPLOYEE_ONE, data_path: str = "") -> str:

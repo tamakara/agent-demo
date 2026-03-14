@@ -31,6 +31,10 @@ class SessionRepositoryPort(Protocol):
         """按更新时间倒序列出用户会话。"""
         ...
 
+    async def delete_session(self, user_id: str, session_id: str) -> None:
+        """删除会话；关联消息由存储层级联删除。"""
+        ...
+
     async def set_is_flushing(self, user_id: str, session_id: str, value: bool) -> None:
         """更新会话刷盘状态标记。"""
         ...
@@ -98,6 +102,10 @@ class MemoryFileRepositoryPort(Protocol):
 
     async def reset_memory_to_initial_content(self, user_id: str, employee_id: str) -> list[str]:
         """将指定数字员工的记忆文件重置为初始内容并返回恢复文件名列表。"""
+        ...
+
+    async def delete_employee_data(self, user_id: str, employee_id: str) -> None:
+        """删除指定员工目录下全部数据文件。"""
         ...
 
     def list_memory_file_names(self, user_id: str, employee_id: str) -> list[str]:

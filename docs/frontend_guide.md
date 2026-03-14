@@ -30,6 +30,8 @@
 
 - 查询接口：query `user_id`
 - 员工相关查询同时传 `employee_id`
+- 员工重置接口 `/employees/{employee_id}/reset` 使用 `POST + query user_id`
+- 员工删除接口 `/employees/{employee_id}` 使用 `DELETE + query user_id`
 - 用户级目录接口 `/memory/files` 与 `/memory/file-preview` 不依赖 `employee_id`
 - 文本编辑接口 `/memory/file-content` 使用 `query user_id + path`，支持 `.md/.txt`
 - 文件删除接口 `/memory/file` 使用 `DELETE + query user_id + path`

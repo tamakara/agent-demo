@@ -67,7 +67,6 @@ class EmployeeService:
 
     async def list_employees(self, user_id: str, *, limit: int = 300) -> list[EmployeeEntry]:
         """查询用户数字员工列表。"""
-        await self.ensure_default_employee(user_id)
         rows = await self._list_employee_rows(user_id, limit=max(5000, limit * 5))
         entries = [self._build_employee_entry(row) for row in rows]
         entries = [entry for entry in entries if entry.employee_id]
@@ -80,6 +79,13 @@ class EmployeeService:
         max_id = max((int(item.employee_id) for item in existing), default=0)
         next_employee_id = str(max_id + 1)
         session_id = session_id_from_employee_id(next_employee_id)
+        session = await self.session_repo.create_session(user_id, session_id)
+        return self._build_employee_entry({**session, "message_count": 0})
+
+    async def create_employee_with_id(self, user_id: str, employee_id: str) -> EmployeeEntry:
+        """按指定编号创建数字员工。"""
+        normalized_employee_id = normalize_employee_id(employee_id)
+        session_id = session_id_from_employee_id(normalized_employee_id)
         session = await self.session_repo.create_session(user_id, session_id)
         return self._build_employee_entry({**session, "message_count": 0})
 
@@ -96,6 +102,18 @@ class EmployeeService:
                 return self._build_employee_entry(row)
 
         raise NotFoundError(f"数字员工不存在：employee_id={normalized_employee_id}")
+
+    async def delete_employee(self, user_id: str, employee_id: str) -> EmployeeEntry:
+        """删除指定数字员工会话。"""
+        employee = await self.get_employee(user_id, employee_id, auto_create_default=False)
+        await self.session_repo.delete_session(user_id, employee.session_id)
+        return employee
+
+    async def reset_employee(self, user_id: str, employee_id: str) -> EmployeeEntry:
+        """重置指定数字员工会话（删除后同编号重建）。"""
+        employee = await self.get_employee(user_id, employee_id, auto_create_default=False)
+        await self.session_repo.delete_session(user_id, employee.session_id)
+        return await self.create_employee_with_id(user_id, employee.employee_id)
 
     async def list_employee_messages(
         self,

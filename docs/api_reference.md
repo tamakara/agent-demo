@@ -92,6 +92,49 @@ Data:
 - `created`
 - `employee`
 
+#### `POST /employees/{employee_id}/reset`
+
+用途：
+
+- 重置指定员工，效果等同“删除该员工后用同编号重建”。
+- 会清空该员工会话消息与 `employee/{employee_id}` 目录数据（包含记忆文件、`workspace/`、`skills/` 等）。
+
+Query:
+
+- `user_id` 必填
+
+Path:
+
+- `employee_id` 必填
+
+Data:
+
+- `ok`
+- `employee`：重建后的员工条目
+- `employees[]`：当前员工列表
+- `files[]`：重建后记忆文件
+- `tree[]`：最新目录树
+
+#### `DELETE /employees/{employee_id}`
+
+用途：
+
+- 删除指定员工（会话消息与 `employee/{employee_id}` 目录数据）。
+
+Query:
+
+- `user_id` 必填
+
+Path:
+
+- `employee_id` 必填
+
+Data:
+
+- `deleted`（`true`）
+- `employee`：被删除的员工条目
+- `employees[]`：删除后的员工列表
+
 #### `GET /employee-messages`
 
 Query:
@@ -308,7 +351,7 @@ Query:
 
 说明：
 
-- 仅重置 `employee/<employee_id>` 下的记忆模板 Markdown 文件
+- 仅重置 `employee/<employee_id>/memory.md` 与 `employee/<employee_id>/notebook/**.md`
 - `workspace/`、`skills/`、`brand_library/`、`skill_library/` 不会被清空
 
 #### `GET /memory/status`

@@ -57,6 +57,10 @@ class MemoryFileService:
         files = await self.list_files(user_id, employee_id)
         return restored, files
 
+    async def delete_employee_data(self, user_id: str, employee_id: str) -> None:
+        """删除指定员工目录下的全部数据文件。"""
+        await self.memory_repo.delete_employee_data(user_id, employee_id)
+
     async def update_file(self, *, user_id: str, employee_id: str, file_name: str, content: str, mode: str) -> str:
         """更新指定文件并返回写入后的最新内容。"""
         await self.memory_repo.write_memory_file(

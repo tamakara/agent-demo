@@ -470,3 +470,13 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 (user_id, limit),
             ).fetchall()
             return [dict(row) for row in rows]
+
+    async def delete_session(self, user_id: str, session_id: str) -> None:
+        """删除指定会话。"""
+        async with self._lock:
+            conn = self._ensure_conn()
+            conn.execute(
+                "DELETE FROM sessions WHERE user_id = ? AND session_id = ?;",
+                (user_id, session_id),
+            )
+            conn.commit()
