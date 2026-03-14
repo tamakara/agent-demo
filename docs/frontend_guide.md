@@ -32,6 +32,8 @@
 - 员工相关查询同时传 `employee_id`
 - 用户级目录接口 `/memory/files` 与 `/memory/file-preview` 不依赖 `employee_id`
 - 文本编辑接口 `/memory/file-content` 使用 `query user_id + path`，支持 `.md/.txt`
+- 文件删除接口 `/memory/file` 使用 `DELETE + query user_id + path`
+  - 仅允许删除 `brand_library` / `skill_library` 下文件
 - 写接口：body `user_id`
 - 特例：`PUT /memory/files/{file_name}` 与 `POST /memory/reset` 继续 query 传 `user_id`、`employee_id`
 

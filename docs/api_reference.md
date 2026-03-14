@@ -174,7 +174,7 @@ Query:
 Data:
 
 - `data_dir`：用户数据目录绝对路径
-- `tree[]`：用户级目录树（`path` + `is_dir`），`employee` 下会展开全部员工目录，例如 `/employee/1/`、`/employee/2/`
+- `tree[]`：用户级目录树（`path` + `is_dir`），`employee` 下会展开全部员工目录，例如 `/employee/1/`、`/employee/2/`；目录下一层文件按实际文件类型返回（含文本/图片及其他类型）
 - `files[]`：可编辑记忆文件（`employee_id`、`file_name`、`relative_path`、`content`），`relative_path` 形如 `employee/1/notebook/人格设定.md`
 
 #### `GET /memory/file-preview`
@@ -228,6 +228,27 @@ Body:
   "mode": "overwrite"
 }
 ```
+
+#### `DELETE /memory/file`
+
+用途：
+
+- 按目录树路径删除选中文件（文件列表展示层会同步刷新）。
+
+Query:
+
+- `user_id` 必填
+- `path` 必填（来自 `tree.path`）
+
+限制：
+
+- 仅允许删除 `/brand_library` 与 `/skill_library` 下的文件。
+- `/employee/...` 下文件不允许删除。
+
+Data:
+
+- `deleted`（`true`）
+- `path`
 
 #### `PUT /memory/files/{file_name}`
 

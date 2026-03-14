@@ -207,6 +207,7 @@ select {
 
 .memory-editor { flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden;}
 .editor-header { padding: 8px 12px; background: var(--bg-app); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.editor-actions { display: flex; align-items: center; gap: 8px; }
 #fileContent { flex: 1; border: none; border-radius: 0; padding: 12px; font-family: "Fira Code", monospace; font-size: 0.9rem; background: #fafafa; resize: none; outline: none;}
 .file-image-preview {
   flex: 1;

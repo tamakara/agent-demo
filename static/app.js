@@ -6,6 +6,7 @@ const TOKENIZER_OPTIONS = ["gemini-3-flash", "gemini-3.1-pro"];
 const DEFAULT_TOKENIZER_MODEL = "gemini-3-flash";
 const IMAGE_FILE_EXT_PATTERN = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
 const EDITABLE_TEXT_EXT_PATTERN = /\.(md|txt)$/i;
+const DELETABLE_ROOT_NAMES = new Set(["brand_library", "skill_library"]);
 
 const state = {
   userId: localStorage.getItem(CONFIG.storageKey) || "",
@@ -29,7 +30,8 @@ const els = {
   chatLog: $("chatLog"), chatForm: $("chatForm"), msgInput: $("messageInput"),
   empSelect: $("employeeSelect"), btnNewEmp: $("newEmployeeBtn"), btnReloadEmp: $("reloadEmployeeBtn"),
   btnResetMemory: $("resetMemoryBtn"), btnReloadFiles: $("reloadFilesBtn"),
-  tree: $("directoryTree"), fileContent: $("fileContent"), fileName: $("activeFileName"), btnSaveFile: $("saveFileBtn"),
+  tree: $("directoryTree"), fileContent: $("fileContent"), fileName: $("activeFileName"),
+  btnDeleteFile: $("deleteFileBtn"), btnSaveFile: $("saveFileBtn"),
   fileImagePreview: $("fileImagePreview"), fileImagePreviewImg: $("fileImagePreviewImg"), fileImagePreviewPath: $("fileImagePreviewPath"),
   modal: $("settingsModal"), btnSettings: $("openSettingsBtn"),
   tokenSum: $("tokenSummary"), resBar: $("residentBar"), diaBar: $("dialogueBar"), bufBar: $("bufferBar"),
@@ -72,6 +74,14 @@ const fileKindFromTreePath = (path) => {
   return "other";
 };
 
+const dataRootNameFromPath = (path) => {
+  const normalized = toEditableRelativePath(path);
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[0] || "";
+};
+
+const isDeletableFilePath = (path) => DELETABLE_ROOT_NAMES.has(dataRootNameFromPath(path));
+
 const buildSelectedFile = (path) => {
   const normalized = String(path || "").trim();
   if (!normalized) return null;
@@ -104,7 +114,8 @@ const api = {
   },
   get: (path, q) => api.req("GET", path, null, q),
   post: (path, b, q) => api.req("POST", path, b, q),
-  put: (path, b, q) => api.req("PUT", path, b, q)
+  put: (path, b, q) => api.req("PUT", path, b, q),
+  del: (path, q) => api.req("DELETE", path, null, q)
 };
 
 // =================UI 渲染中心=================
@@ -257,6 +268,7 @@ const ui = {
     const file = findEditableFile(activePath);
     const cachedTextContent = state.textFileCache[activePath];
     const globallyLocked = !state.userId || state.isChatting;
+    const canDelete = !!activePath && !globallyLocked && isDeletableFilePath(activePath);
 
     // 每次更新编辑区先回到“文本模式”，仅在明确是图片文件时再切换到预览模式。
     els.fileImagePreview.hidden = true;
@@ -275,12 +287,14 @@ const ui = {
       els.fileImagePreviewPath.textContent = activePath;
       els.fileContent.style.display = "none";
       els.fileContent.value = "";
+      els.btnDeleteFile.disabled = !canDelete;
       els.btnSaveFile.disabled = true;
       return;
     }
 
     if (selectedKind === "text") {
       els.fileName.textContent = fileNameFromPath(activePath) || "未选择文件";
+      els.btnDeleteFile.disabled = !canDelete;
       if (file && typeof file.content === "string") {
         els.fileContent.value = file.content;
         els.btnSaveFile.disabled = globallyLocked;
@@ -303,13 +317,15 @@ const ui = {
 
     if (activePath) {
       els.fileName.textContent = fileNameFromPath(activePath) || "未选择文件";
-      els.fileContent.value = "该文件不支持文本编辑。";
+      els.fileContent.value = "不支持该文件预览和编辑。";
+      els.btnDeleteFile.disabled = !canDelete;
       els.btnSaveFile.disabled = true;
       return;
     }
 
     els.fileName.textContent = "未选择文件";
     els.fileContent.value = "";
+    els.btnDeleteFile.disabled = true;
     els.btnSaveFile.disabled = true;
   },
 
@@ -325,7 +341,11 @@ const ui = {
 
   lockUI(locked) {
     const disabled = !state.userId || locked;
-    [els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnResetMemory, els.btnReloadFiles, els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), $("saveFileBtn"), els.msgInput, els.chatForm.querySelector("button")].forEach(el => el.disabled = disabled);
+    [
+      els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnResetMemory, els.btnReloadFiles,
+      els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), els.btnDeleteFile, els.btnSaveFile,
+      els.msgInput, els.chatForm.querySelector("button")
+    ].forEach(el => el.disabled = disabled);
     if (!disabled) ui.updateEditor();
     if (!state.userId) els.msgInput.placeholder = "请先配置并应用用户 ID...";
   }
@@ -519,6 +539,25 @@ const logic = {
     ui.appendChat("meta", `员工 #${targetEmployeeId} 记忆已重置（memory.md 与 notebook 下文件）`);
   },
 
+  async deleteSelectedFile() {
+    const selected = state.selectedFile;
+    if (!selected?.path) return ui.appendChat("error", "未选择文件");
+    if (!isDeletableFilePath(selected.path)) {
+      return ui.appendChat("error", "仅允许删除 brand_library 与 skill_library 下的文件");
+    }
+    const confirmed = window.confirm(`确认删除文件吗？\n${selected.path}`);
+    if (!confirmed) return;
+    await api.del("/memory/file", { path: selected.path });
+    if (state.loadingTextFilePath === selected.path) {
+      state.loadingTextFilePath = "";
+    }
+    delete state.textFileCache[selected.path];
+    state.activeFile = null;
+    state.selectedFile = null;
+    await this.refreshFiles();
+    ui.appendChat("meta", `已删除文件：${selected.path}`);
+  },
+
   async createEmployee() {
     const data = await api.post("/employees", { user_id: state.userId });
     state.employees.push(data.employee);
@@ -674,6 +713,14 @@ const logic = {
         await this.resetMemory();
       } catch (err) {
         ui.appendChat('error', "重置记忆失败: " + err.message);
+      }
+    };
+
+    els.btnDeleteFile.onclick = async () => {
+      try {
+        await this.deleteSelectedFile();
+      } catch (err) {
+        ui.appendChat("error", "删除文件失败: " + err.message);
       }
     };
 

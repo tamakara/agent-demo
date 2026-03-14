@@ -83,7 +83,10 @@
             <main class="memory-editor">
               <div class="editor-header">
                 <span id="activeFileName" class="font-mono text-sm">未选择文件</span>
-                <button id="saveFileBtn" class="btn btn-primary btn-sm" type="button">保存修改</button>
+                <div class="editor-actions">
+                  <button id="deleteFileBtn" class="btn btn-sm text-danger" type="button">删除文件</button>
+                  <button id="saveFileBtn" class="btn btn-primary btn-sm" type="button">保存修改</button>
+                </div>
               </div>
               <div id="fileImagePreview" class="file-image-preview" hidden>
                 <img id="fileImagePreviewImg" alt="">

@@ -31,6 +31,7 @@ from domain.models import LLMConfig
 FIXED_MAX_TOOL_ROUNDS = 64
 PREVIEWABLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".bmp", ".svg"}
 EDITABLE_TEXT_SUFFIXES = {".md", ".txt"}
+DELETABLE_DATA_ROOTS = {"brand_library", "skill_library"}
 
 
 def _new_request_id() -> str:
@@ -54,6 +55,12 @@ def _memory_status_to_dict(status: Any) -> dict[str, Any]:
         if isinstance(dumped, dict):
             return dumped
     return asdict(status)
+
+
+def _data_root_from_tree_path(path: str) -> str:
+    """返回目录树路径的一级目录名。"""
+    parts = [part for part in str(path or "").strip().split("/") if part]
+    return parts[0] if parts else ""
 
 
 async def _resolve_employee(
@@ -453,6 +460,31 @@ def create_router(container: AppContainer) -> APIRouter:
 
             latest = file_path.read_text(encoding="utf-8")
             return JSONResponse(success_response(request_id=request_id, data={"path": path, "content": latest}))
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
+    @router.delete("/memory/file")
+    async def delete_memory_file(
+        path: str = Query(..., min_length=1),
+        user_id: str = Query(..., min_length=1),
+    ) -> JSONResponse:
+        """删除目录树中的单个文件。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            root_name = _data_root_from_tree_path(path)
+            if root_name not in DELETABLE_DATA_ROOTS:
+                raise ValidationError("仅允许删除 brand_library 与 skill_library 下的文件")
+            abs_path = container.memory_file_service.resolve_data_file_path(
+                normalized_user_id,
+                "1",
+                path,
+            )
+            target = Path(abs_path)
+            if not target.exists() or not target.is_file():
+                raise NotFoundError(f"文件不存在：{path}")
+            target.unlink()
+            return JSONResponse(success_response(request_id=request_id, data={"deleted": True, "path": path}))
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 

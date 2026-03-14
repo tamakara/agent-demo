@@ -216,22 +216,18 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             seen_paths.add(path)
             entries.append({"path": path, "is_dir": is_dir})
 
-        def append_direct_files(base_dir: Path, prefix: str, *, suffixes: set[str]) -> None:
-            """仅追加目录下一层指定后缀文件，限制目录深度到三层。"""
+        def append_direct_files(base_dir: Path, prefix: str, *, suffixes: set[str] | None = None) -> None:
+            """仅追加目录下一层文件，限制目录深度到三层。"""
             if not base_dir.exists():
                 return
             for file_path in sorted(base_dir.iterdir(), key=lambda p: p.name.lower()):
-                if file_path.suffix.lower() not in suffixes:
+                if suffixes is not None and file_path.suffix.lower() not in suffixes:
                     continue
                 if file_path.is_file():
                     append_entry(f"{prefix}/{file_path.name}", is_dir=False)
 
         append_entry("/brand_library", is_dir=True)
-        append_direct_files(
-            brand_root,
-            "/brand_library",
-            suffixes=VISIBLE_TEXT_SUFFIXES | VISIBLE_IMAGE_SUFFIXES,
-        )
+        append_direct_files(brand_root, "/brand_library")
 
         append_entry("/employee", is_dir=True)
         for member_id in employee_ids:
@@ -246,20 +242,16 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             append_entry(f"{member_prefix}/memory.md", is_dir=False)
 
             append_entry(f"{member_prefix}/notebook", is_dir=True)
-            append_direct_files(notebook_root, f"{member_prefix}/notebook", suffixes=VISIBLE_TEXT_SUFFIXES)
+            append_direct_files(notebook_root, f"{member_prefix}/notebook")
 
             append_entry(f"{member_prefix}/skills", is_dir=True)
-            append_direct_files(skills_root, f"{member_prefix}/skills", suffixes=VISIBLE_TEXT_SUFFIXES)
+            append_direct_files(skills_root, f"{member_prefix}/skills")
 
             append_entry(f"{member_prefix}/workspace", is_dir=True)
-            append_direct_files(
-                workspace_root,
-                f"{member_prefix}/workspace",
-                suffixes=VISIBLE_TEXT_SUFFIXES | VISIBLE_IMAGE_SUFFIXES,
-            )
+            append_direct_files(workspace_root, f"{member_prefix}/workspace")
 
         append_entry("/skill_library", is_dir=True)
-        append_direct_files(skill_root, "/skill_library", suffixes=VISIBLE_TEXT_SUFFIXES)
+        append_direct_files(skill_root, "/skill_library")
         return entries
 
     def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:
