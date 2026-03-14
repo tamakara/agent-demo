@@ -29,6 +29,7 @@ const els = {
   userId: $("userIdInput"), btnUser: $("switchUserBtn"),
   chatLog: $("chatLog"), chatForm: $("chatForm"), msgInput: $("messageInput"),
   empSelect: $("employeeSelect"), btnNewEmp: $("newEmployeeBtn"), btnReloadEmp: $("reloadEmployeeBtn"),
+  btnUploadBrandLibrary: $("uploadBrandLibraryBtn"), uploadBrandLibraryInput: $("uploadBrandLibraryInput"),
   btnResetMemory: $("resetMemoryBtn"), btnReloadFiles: $("reloadFilesBtn"),
   tree: $("directoryTree"), fileContent: $("fileContent"), fileName: $("activeFileName"),
   btnDeleteFile: $("deleteFileBtn"), btnSaveFile: $("saveFileBtn"),
@@ -108,6 +109,20 @@ const api = {
       body: body ? JSON.stringify(body) : null
     });
     
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload.error) throw payload.error || new Error(`HTTP ${res.status}`);
+    return payload.data;
+  },
+  async upload(path, files, query = {}) {
+    const requestQuery = { ...(query || {}) };
+    if (state.userId && !requestQuery.user_id) requestQuery.user_id = state.userId;
+    const qs = new URLSearchParams(requestQuery).toString();
+    const url = `${path}${qs ? '?' + qs : ''}`;
+
+    const form = new FormData();
+    Array.from(files || []).forEach((file) => form.append("files", file));
+
+    const res = await fetch(url, { method: "POST", body: form });
     const payload = await res.json().catch(() => ({}));
     if (!res.ok || payload.error) throw payload.error || new Error(`HTTP ${res.status}`);
     return payload.data;
@@ -342,7 +357,8 @@ const ui = {
   lockUI(locked) {
     const disabled = !state.userId || locked;
     [
-      els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnResetMemory, els.btnReloadFiles,
+      els.empSelect, els.btnNewEmp, els.btnReloadEmp, els.btnUploadBrandLibrary, els.uploadBrandLibraryInput,
+      els.btnResetMemory, els.btnReloadFiles,
       els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), els.btnDeleteFile, els.btnSaveFile,
       els.msgInput, els.chatForm.querySelector("button")
     ].forEach(el => el.disabled = disabled);
@@ -558,6 +574,27 @@ const logic = {
     ui.appendChat("meta", `已删除文件：${selected.path}`);
   },
 
+  async uploadBrandLibraryFiles(fileList) {
+    if (!state.userId) return ui.appendChat("error", "请先配置并应用用户 ID");
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    const result = await api.upload("/memory/brand-library/upload", files);
+    await this.refreshFiles();
+    const uploaded = Array.isArray(result?.uploaded) ? result.uploaded : [];
+    if (!uploaded.length) {
+      ui.appendChat("meta", "素材上传完成");
+      return;
+    }
+    const renamedCount = uploaded.filter(item => !!item?.renamed).length;
+    const previewNames = uploaded.slice(0, 5).map(item => String(item.file_name || "")).filter(Boolean);
+    const previewText = previewNames.join("、");
+    const suffix = uploaded.length > 5 ? ` 等 ${uploaded.length} 个文件` : `：${previewText}`;
+    const detailParts = [];
+    if (renamedCount > 0) detailParts.push(`${renamedCount} 个同名文件已自动重命名`);
+    const detail = detailParts.length ? `（${detailParts.join("，")}）` : "";
+    ui.appendChat("meta", `素材上传成功${suffix}${detail}`);
+  },
+
   async createEmployee() {
     const data = await api.post("/employees", { user_id: state.userId });
     state.employees.push(data.employee);
@@ -706,6 +743,21 @@ const logic = {
         await this.refreshFiles();
       } catch (err) {
         ui.appendChat('error', "刷新目录失败: " + err.message);
+      }
+    };
+    els.btnUploadBrandLibrary.onclick = () => {
+      if (!state.userId || state.isChatting) return;
+      els.uploadBrandLibraryInput.click();
+    };
+    els.uploadBrandLibraryInput.onchange = async (e) => {
+      const selectedFiles = e.target.files;
+      if (!selectedFiles || selectedFiles.length === 0) return;
+      try {
+        await this.uploadBrandLibraryFiles(selectedFiles);
+      } catch (err) {
+        ui.appendChat("error", "上传素材失败: " + err.message);
+      } finally {
+        e.target.value = "";
       }
     };
     els.btnResetMemory.onclick = async () => {

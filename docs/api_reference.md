@@ -250,6 +250,35 @@ Data:
 - `deleted`（`true`）
 - `path`
 
+#### `POST /memory/brand-library/upload`
+
+用途：
+
+- 上传单个或多个文件到用户级素材目录 `/brand_library`。
+
+Query:
+
+- `user_id` 必填
+
+Body（`multipart/form-data`）:
+
+- `files`：可重复字段，支持单文件或多文件上传
+
+说明：
+
+- 若上传文件名与现有文件重复，系统会自动改名为 `name(1).ext`、`name(2).ext` ...（不会覆盖同名文件）
+
+Data:
+
+- `count`：成功写入文件数
+- `uploaded[]`
+  - `file_name`：实际落盘文件名
+  - `original_file_name`：原始上传文件名
+  - `renamed`：是否发生自动重命名
+  - `name_conflicted`：是否命中重名冲突
+  - `path`：目录树路径（例如 `/brand_library/logo.png`）
+  - `size`：文件字节数
+
 #### `PUT /memory/files/{file_name}`
 
 Query:

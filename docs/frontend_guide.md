@@ -34,6 +34,9 @@
 - 文本编辑接口 `/memory/file-content` 使用 `query user_id + path`，支持 `.md/.txt`
 - 文件删除接口 `/memory/file` 使用 `DELETE + query user_id + path`
   - 仅允许删除 `brand_library` / `skill_library` 下文件
+- 素材上传接口 `/memory/brand-library/upload` 使用 `POST + multipart/form-data + query user_id`
+  - `files` 字段支持单文件或多文件
+  - 同名文件默认自动重命名为 `name(1).ext`、`name(2).ext` ...
 - 写接口：body `user_id`
 - 特例：`PUT /memory/files/{file_name}` 与 `POST /memory/reset` 继续 query 传 `user_id`、`employee_id`
 

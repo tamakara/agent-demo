@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import re
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from api.dependencies import AppContainer
@@ -26,12 +27,14 @@ from common.errors import AppError, NotFoundError, ValidationError
 from common.ids import normalize_employee_id, normalize_user_id
 from common.response import error_response, success_response
 from domain.models import LLMConfig
+from infra.memory.storage_layout import user_brand_library_dir
 
 
 FIXED_MAX_TOOL_ROUNDS = 64
 PREVIEWABLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp", ".gif", ".bmp", ".svg"}
 EDITABLE_TEXT_SUFFIXES = {".md", ".txt"}
 DELETABLE_DATA_ROOTS = {"brand_library", "skill_library"}
+DUPLICATE_NAME_SUFFIX_PATTERN = re.compile(r"^(?P<base>.*?)(?:\((?P<idx>\d+)\)|（(?P<idx_cn>\d+)）)$")
 
 
 def _new_request_id() -> str:
@@ -61,6 +64,46 @@ def _data_root_from_tree_path(path: str) -> str:
     """返回目录树路径的一级目录名。"""
     parts = [part for part in str(path or "").strip().split("/") if part]
     return parts[0] if parts else ""
+
+
+def _normalize_upload_file_name(file_name: str) -> str:
+    """规范化上传文件名并限制为单文件名。"""
+    raw = str(file_name or "").strip()
+    if not raw:
+        raise ValidationError("上传文件名不能为空")
+    name = Path(raw).name.strip()
+    if not name or name in {".", ".."}:
+        raise ValidationError("上传文件名非法")
+    if len(name) > 255:
+        raise ValidationError("上传文件名过长（最多 255 个字符）")
+    return name
+
+
+def _deduplicate_file_name(base_dir: Path, file_name: str) -> str:
+    """若同名文件已存在，则生成 ``name(n).ext`` 可用文件名。"""
+    candidate = Path(file_name)
+    stem = candidate.stem
+    suffix = candidate.suffix
+
+    matched = DUPLICATE_NAME_SUFFIX_PATTERN.fullmatch(stem)
+    if matched:
+        base_stem = str(matched.group("base") or "").strip()
+        index_raw = matched.group("idx") or matched.group("idx_cn") or "0"
+        start_index = max(1, int(index_raw) + 1)
+        if not base_stem:
+            base_stem = stem
+            start_index = 1
+    else:
+        base_stem = stem
+        start_index = 1
+
+    index = start_index
+    while True:
+        renamed = f"{base_stem}({index}){suffix}"
+        target_path = (base_dir / renamed).resolve()
+        if not target_path.exists():
+            return renamed
+        index += 1
 
 
 async def _resolve_employee(
@@ -485,6 +528,60 @@ def create_router(container: AppContainer) -> APIRouter:
                 raise NotFoundError(f"文件不存在：{path}")
             target.unlink()
             return JSONResponse(success_response(request_id=request_id, data={"deleted": True, "path": path}))
+        except AppError as exc:
+            raise _raise_http(exc, request_id) from exc
+
+    @router.post("/memory/brand-library/upload")
+    async def upload_brand_library_files(
+        files: list[UploadFile] = File(...),
+        user_id: str = Query(..., min_length=1),
+    ) -> JSONResponse:
+        """上传单个或多个文件到用户 ``/brand_library``。"""
+        request_id = _new_request_id()
+        try:
+            normalized_user_id = normalize_user_id(user_id)
+            brand_library_dir = user_brand_library_dir(normalized_user_id).resolve()
+            brand_library_dir.mkdir(parents=True, exist_ok=True)
+            if not files:
+                raise ValidationError("请至少选择一个文件")
+
+            uploaded: list[dict[str, Any]] = []
+            for upload in files:
+                try:
+                    original_name = _normalize_upload_file_name(upload.filename or "")
+                    original_target_path = (brand_library_dir / original_name).resolve()
+                    if original_target_path != brand_library_dir and brand_library_dir not in original_target_path.parents:
+                        raise ValidationError("上传文件路径非法")
+                    name_conflicted = original_target_path.exists()
+
+                    final_name = original_name
+                    if name_conflicted:
+                        final_name = _deduplicate_file_name(brand_library_dir, original_name)
+
+                    target_path = (brand_library_dir / final_name).resolve()
+                    if target_path != brand_library_dir and brand_library_dir not in target_path.parents:
+                        raise ValidationError("上传文件路径非法")
+                    payload = await upload.read()
+                    target_path.write_bytes(payload)
+                    uploaded.append(
+                        {
+                            "file_name": final_name,
+                            "original_file_name": original_name,
+                            "renamed": final_name != original_name,
+                            "path": f"/brand_library/{final_name}",
+                            "size": len(payload),
+                            "name_conflicted": name_conflicted,
+                        }
+                    )
+                finally:
+                    await upload.close()
+
+            return JSONResponse(
+                success_response(
+                    request_id=request_id,
+                    data={"uploaded": uploaded, "count": len(uploaded)},
+                )
+            )
         except AppError as exc:
             raise _raise_http(exc, request_id) from exc
 
