@@ -48,7 +48,7 @@
 每个员工目录都独立拥有：
 
 - `memory.md`
-- `notebook/`（`素材库笔记.md`、`日程表.md`、`人格设定.md`、`工作手册.md`）
+- `notebook/`（`file.md`、`schedule.md`、`soul.md`、`workbook.md`）
 - `workspace/`
 - `skills/`
 

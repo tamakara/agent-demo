@@ -72,10 +72,10 @@ data/user/<user_id>/
 │   ├── 1/
 │   │   ├── memory.md
 │   │   ├── notebook/
-│   │   │   ├── 素材库笔记.md
-│   │   │   ├── 日程表.md
-│   │   │   ├── 人格设定.md
-│   │   │   └── 工作手册.md
+│   │   │   ├── file.md
+│   │   │   ├── schedule.md
+│   │   │   ├── soul.md
+│   │   │   └── workbook.md
 │   │   ├── workspace/
 │   │   └── skills/
 │   └── 2/
@@ -98,9 +98,9 @@ data/user/<user_id>/
 接口可见记忆文件（`GET /memory/files`）按用户维度聚合，返回所有员工目录下的记忆文件：
 
 - `employee/1/memory.md`
-- `employee/1/notebook/人格设定.md`
+- `employee/1/notebook/soul.md`
 - `employee/2/memory.md`
-- `employee/2/notebook/日程表.md`
+- `employee/2/notebook/schedule.md`
 
 ## 3. 分区语义（messages.zone）
 

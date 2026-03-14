@@ -16,9 +16,10 @@ from .storage_layout import (
     ASSET_PLACEHOLDER_FILE,
     COMPRESSED_MEMORY_FILE,
     EMPLOYEE_ONE,
-    NOTEBOOK_SUBDIR,
     PERSONA_FILE,
+    SCHEDULE_FILE,
     SYSTEM_PROMPT_FILE,
+    WORKBOOK_FILE,
     resolve_memory_path,
     resolve_memory_relative_path,
     user_brand_library_dir,
@@ -48,12 +49,12 @@ EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
         "- **表达风格**：专业、高效，在执行任务时会主动提供创新性的建议或方案。\n"
         "- **决策风格**：以用户的需求为最高优先级，在框架内寻求最优、最创新的解决路径。\n"
     ),
-    "日程表.md": (
+    SCHEDULE_FILE: (
         "# 日程表\n\n"
         "- 记录任务日程、提醒事项与时间安排。\n"
         "- 当前为初始化模板，等待后续写入。\n"
     ),
-    "工作手册.md": (
+    WORKBOOK_FILE: (
         "# 工作手册\n\n"
         "- 记录稳定流程、工作规范与执行清单。\n"
         "- 当前为初始化模板，等待后续写入。\n"
@@ -68,8 +69,8 @@ EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
 PREFERRED_FILE_ORDER = [
     COMPRESSED_MEMORY_FILE,
     PERSONA_FILE,
-    "日程表.md",
-    "工作手册.md",
+    SCHEDULE_FILE,
+    WORKBOOK_FILE,
     ASSET_PLACEHOLDER_FILE,
     SYSTEM_PROMPT_FILE,
 ]

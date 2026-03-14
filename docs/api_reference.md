@@ -218,7 +218,7 @@ Data:
 
 - `data_dir`：用户数据目录绝对路径
 - `tree[]`：用户级目录树（`path` + `is_dir`），`employee` 下会展开全部员工目录，例如 `/employee/1/`、`/employee/2/`；目录下一层文件按实际文件类型返回（含文本/图片及其他类型）
-- `files[]`：可编辑记忆文件（`employee_id`、`file_name`、`relative_path`、`content`），`relative_path` 形如 `employee/1/notebook/人格设定.md`
+- `files[]`：可编辑记忆文件（`employee_id`、`file_name`、`relative_path`、`content`），`relative_path` 形如 `employee/1/notebook/soul.md`
 
 #### `GET /memory/file-preview`
 
@@ -245,7 +245,7 @@ Query:
 Query:
 
 - `user_id` 必填
-- `path` 必填（来自 `tree.path`，例如 `/employee/1/notebook/人格设定.md` 或 `/skill_library/demo.txt`）
+- `path` 必填（来自 `tree.path`，例如 `/employee/1/notebook/soul.md` 或 `/skill_library/demo.txt`）
 
 Data:
 
@@ -331,7 +331,7 @@ Query:
 
 Path:
 
-- `file_name`：逻辑文件名（例如 `memory.md`、`人格设定.md`）
+- `file_name`：逻辑文件名（例如 `memory.md`、`soul.md`）
 
 Body:
 

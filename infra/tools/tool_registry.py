@@ -17,7 +17,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "file_name": {
                         "type": "string",
-                        "description": "目标记忆文件名，例如：memory.md 或 人格设定.md",
+                        "description": "目标记忆文件名，例如：memory.md 或 soul.md",
                     }
                 },
                 "required": ["file_name"],
@@ -35,7 +35,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "properties": {
                     "file_name": {
                         "type": "string",
-                        "description": "目标记忆文件名，例如：memory.md 或 人格设定.md",
+                        "description": "目标记忆文件名，例如：memory.md 或 soul.md",
                     },
                     "content": {
                         "type": "string",
