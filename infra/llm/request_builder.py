@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from typing import Any, cast
 
@@ -14,6 +15,13 @@ from infra.tools.tool_registry import TOOL_SCHEMAS
 OPENAI_DEFAULT_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 OPENAI_SUFFIX_CHAT_COMPLETIONS = "/chat/completions"
 FALLBACK_TOOL_NAME_PREFIX = "unknown_tool"
+KIMI_TOOL_CALL_BLOCK_PATTERN = re.compile(
+    r"<\|tool_call_begin\|>\s*(?P<name>[^\n\r]+?)\s*"
+    r"<\|tool_call_argument_begin\|>\s*(?P<arguments>.*?)\s*"
+    r"<\|tool_call_end\|>",
+    re.DOTALL,
+)
+KIMI_TOOL_SECTION_TOKEN_PATTERN = re.compile(r"<\|tool_calls_section_(begin|end)\|>")
 
 
 def normalize_openai_base_url(base_url: str | None) -> str:
@@ -164,6 +172,56 @@ def extract_raw_tool_calls(message: Any) -> list[Any]:
     if isinstance(raw_tool_calls, list):
         return raw_tool_calls
     return [raw_tool_calls]
+
+
+def extract_kimi_markup_tool_calls(content: str) -> list[dict[str, Any]]:
+    """
+    从 Kimi 特殊文本标记中提取工具调用结构。
+
+    示例：
+    ``<|tool_call_begin|> functions.image_gen_edit:0 <|tool_call_argument_begin|> {...} <|tool_call_end|>``
+    """
+    text = str(content or "")
+    if "<|tool_call_begin|>" not in text or "<|tool_call_argument_begin|>" not in text:
+        return []
+
+    parsed_calls: list[dict[str, Any]] = []
+    for index, match in enumerate(KIMI_TOOL_CALL_BLOCK_PATTERN.finditer(text)):
+        raw_name = str(match.group("name") or "").strip()
+        raw_arguments = str(match.group("arguments") or "").strip() or "{}"
+        if not raw_name:
+            continue
+
+        tool_call_id = f"kimi_markup_call_{index}"
+        normalized_name = raw_name
+        if ":" in raw_name:
+            name_part, suffix = raw_name.rsplit(":", 1)
+            if suffix.isdigit():
+                normalized_name = name_part
+                tool_call_id = f"kimi_markup_call_{suffix}"
+
+        parsed_calls.append(
+            {
+                "id": tool_call_id,
+                "type": "function",
+                "function": {
+                    "name": normalized_name,
+                    "arguments": raw_arguments,
+                },
+            }
+        )
+
+    return parsed_calls
+
+
+def strip_kimi_tool_markup(content: str) -> str:
+    """移除 Kimi 特殊工具标记，保留可读文本。"""
+    text = str(content or "")
+    if not text:
+        return ""
+    text = KIMI_TOOL_CALL_BLOCK_PATTERN.sub("", text)
+    text = KIMI_TOOL_SECTION_TOKEN_PATTERN.sub("", text)
+    return text.strip()
 
 
 def serialize_tool_content(payload: Any) -> str:

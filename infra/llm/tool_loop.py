@@ -10,7 +10,7 @@ from domain.models import LLMConfig
 from infra.llm.event_publisher import emit, record_event
 from infra.llm.request_builder import normalize_tool_name, serialize_tool_content
 from infra.tools.builtin_tools import BuiltinToolRunner
-from infra.tools.tool_registry import parse_tool_arguments
+from infra.tools.tool_registry import find_missing_required_tool_arguments, parse_tool_arguments
 
 
 def replace_system_message(messages: list[dict[str, Any]], system_text: str) -> None:
@@ -177,6 +177,25 @@ async def process_tool_calls(
             tool_call_index=tool_call_index,
         )
         await record_event(tool_call_event, tool_events=tool_events, callback=on_event)
+
+        missing_required_fields = find_missing_required_tool_arguments(tool_name, tool_args)
+        if missing_required_fields:
+            missing_fields_text = "、".join(missing_required_fields)
+            payload_result = {"error": f"工具参数缺失：{missing_fields_text}"}
+            tool_result_event = build_tool_result_event(
+                round_index=round_index,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                payload_result=payload_result,
+            )
+            await record_event(tool_result_event, tool_events=tool_events, callback=on_event)
+            append_tool_result_message(
+                working_messages=working_messages,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                payload_result=payload_result,
+            )
+            continue
 
         try:
             tool_result = await tool_runner.execute(

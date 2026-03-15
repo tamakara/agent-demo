@@ -109,7 +109,7 @@ class MemoryContextService:
         zone: str,
         buffer_limit: int,
     ) -> None:
-        """将可持久化的工具事件落库到目标生命周期分区。"""
+        """将可持久化事件落库到消息分区。"""
         buffer_tokens = 0
         if zone == "buffer":
             zone_tokens = await self.message_repo.sum_tokens_by_zone(user_id, session_id)
@@ -119,18 +119,26 @@ class MemoryContextService:
             if not is_tool_persistable_event(event):
                 continue
             event_name = str(event.get("event", "")).strip()
+            persist_zone = zone
+            token_count = 0
             if event_name == "tool_call":
                 role = "assistant"
                 message_kind = "tool_call"
             elif event_name == "tool_result":
                 role = "tool"
                 message_kind = "tool_result"
+            elif event_name == "meta":
+                # debug 元事件独立存放，避免污染模型输入上下文。
+                role = "assistant"
+                message_kind = "meta"
+                persist_zone = "debug"
             else:
                 continue
 
             content = json.dumps(event, ensure_ascii=False)
-            token_count = self.token_counter.count_tokens(content, tokenizer_model)
-            if zone == "buffer":
+            if message_kind != "meta":
+                token_count = self.token_counter.count_tokens(content, tokenizer_model)
+            if persist_zone == "buffer":
                 self._ensure_buffer_capacity(
                     existing_tokens=buffer_tokens,
                     incoming_tokens=token_count,
@@ -142,10 +150,10 @@ class MemoryContextService:
                 role=role,
                 message_kind=message_kind,
                 content=content,
-                zone=zone,
+                zone=persist_zone,
                 token_count=token_count,
             )
-            if zone == "buffer":
+            if persist_zone == "buffer":
                 buffer_tokens += token_count
 
     async def _compose_resident_system_text(
@@ -164,7 +172,6 @@ class MemoryContextService:
             session=session,
             model=tokenizer_model,
             thresholds=thresholds,
-            list_memory_files=self.memory_repo.list_memory_file_names,
             read_memory_file=self.memory_repo.read_memory_file,
             tool_schemas=self._list_tool_schemas(),
         )

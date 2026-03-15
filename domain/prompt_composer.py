@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from domain.chat.memory_files import (
-    ASSET_PLACEHOLDER_FILE,
     COMPRESSED_MEMORY_FILE,
     PERSONA_FILE,
     SCHEDULE_FILE,
@@ -71,14 +70,6 @@ class PromptComposer:
         text = str(raw_text or "").strip()
         return text or "(暂无内容)"
 
-    @staticmethod
-    def _render_other_memory_sections(other_memories: list[tuple[str, str]]) -> str:
-        """渲染“其他记忆文件”区段文本。"""
-        if not other_memories:
-            return "(暂无其他记忆文件)"
-        sections = [f"### {file_name}\n{content}" for file_name, content in other_memories]
-        return "\n\n".join(sections).strip()
-
     def fit_section_to_budget(
         self,
         *,
@@ -109,7 +100,6 @@ class PromptComposer:
         session: dict[str, Any],
         model: str,
         thresholds: WindowThresholds,
-        list_memory_files: Callable[[str, str], list[str]],
         read_memory_file: Callable[..., Any],
         tool_schemas: list[dict[str, Any]] | None = None,
     ) -> str:
@@ -117,9 +107,7 @@ class PromptComposer:
         tool_defs_text = self._render_tool_definitions_from_schema(tool_schemas or [])
 
         memory_entries: dict[str, str] = {}
-        for file_name in list_memory_files(user_id, employee_id):
-            if file_name == ASSET_PLACEHOLDER_FILE:
-                continue
+        for file_name in (COMPRESSED_MEMORY_FILE, PERSONA_FILE, SCHEDULE_FILE, WORKBOOK_FILE):
             try:
                 content = await read_memory_file(
                     user_id=user_id,
@@ -127,16 +115,9 @@ class PromptComposer:
                     file_name=file_name,
                 )
             except Exception:  # noqa: BLE001
-                continue
+                content = ""
             normalized_content = self._normalize_memory_text(str(content))
-            memory_entries[str(file_name)] = normalized_content
-
-        other_memory_entries = [
-            (file_name, content)
-            for file_name, content in sorted(memory_entries.items(), key=lambda item: item[0].lower())
-            if file_name not in {COMPRESSED_MEMORY_FILE, PERSONA_FILE, SCHEDULE_FILE, WORKBOOK_FILE}
-        ]
-        memory_others = self._render_other_memory_sections(other_memory_entries)
+            memory_entries[file_name] = normalized_content
 
         system_prompt_payload = compose_chat_system_prompt(
             window_preamble=self._system_preamble(thresholds),
@@ -145,7 +126,6 @@ class PromptComposer:
             memory_persona=self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
             memory_schedule=self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
             memory_workbook=self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),
-            memory_others=memory_others,
         )
 
         summary_text = (session.get("workbench_summary") or "").strip() or "(当前暂无工作台摘要)"

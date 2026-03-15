@@ -48,7 +48,7 @@ def to_tool_content(value: Any) -> str:
 def normalize_prompt_role(raw_role: Any) -> str:
     """规范化输入值。"""
     role = str(raw_role).strip()
-    if role in {"system", "user", "assistant", "tool"}:
+    if role in {"system", "user", "assistant", "tool", "function"}:
         return role
     return "assistant"
 
@@ -70,13 +70,13 @@ def sanitize_active_rows_for_tool_protocol(
     清洗裁剪后的 active rows，避免出现工具协议顺序错误。"""
     sanitized: list[dict[str, Any]] = []
     known_tool_calls: set[str] = set()
-    last_role = previous_role if previous_role in {"user", "assistant", "tool"} else None
+    last_role = previous_role if previous_role in {"user", "assistant", "tool", "function"} else None
 
     for row in rows:
         if normalize_message_kind(row) not in {"tool_call", "tool_result"}:
             sanitized.append(row)
             normalized_role = normalize_prompt_role(row.get("role", "assistant"))
-            last_role = "assistant" if normalized_role == "tool" else normalized_role
+            last_role = "assistant" if normalized_role in {"tool", "function"} else normalized_role
             continue
 
         payload = parse_json_object(str(row.get("content", "")))
@@ -156,5 +156,11 @@ def build_message_from_tool_event_row(row: dict[str, Any]) -> dict[str, Any] | N
 
 
 def is_tool_persistable_event(event: dict[str, Any]) -> bool:
-    """执行 is_tool_persistable_event 相关逻辑。"""
-    return str(event.get("event", "")) in {"tool_call", "tool_result"}
+    """判断事件是否需要持久化到消息表（含 debug 用 meta 事件）。"""
+    event_name = str(event.get("event", "")).strip()
+    if event_name in {"tool_call", "tool_result"}:
+        return True
+    if event_name != "meta":
+        return False
+    meta_type = str(event.get("type", "")).strip()
+    return meta_type in {"llm_request", "llm_response", "llm_error", "state_refresh"}

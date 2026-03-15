@@ -16,8 +16,7 @@ FLUSH_ARCHIVE_SYSTEM_TEMPLATE_FILE = "flush_archive_system.md"
 IMAGE_GENERATION_TEMPLATE_FILE = "image_generation.md"
 
 CHAT_SYSTEM_BASE_FILE = "chat_system_base.md"
-TOOL_CALLING_FILE = "tool_calling.md"
-IMAGE_TOOL_CALLING_FILE = "image_tool_calling.md"
+TOOLS_PROMPT_FILE = "tools_prompt.md"
 FLUSH_ARCHIVE_FILE = "flush_archive.md"
 IMAGE_GENERATION_BASE_FILE = "image_generation_base.md"
 
@@ -53,22 +52,25 @@ def compose_chat_system_prompt(
     memory_persona: str,
     memory_schedule: str,
     memory_workbook: str,
-    memory_others: str,
 ) -> str:
     """构建数字员工聊天场景的 system 提示词。"""
+    tools_prompt = render_prompt_template(
+        _read_section_file(TOOLS_PROMPT_FILE),
+        {
+            "TOOL_DEFINITIONS": str(tool_definitions or "").strip(),
+        },
+    ).strip()
+
     return render_prompt_template(
         _read_template_file(CHAT_SYSTEM_TEMPLATE_FILE),
         {
             "WINDOW_PREAMBLE": str(window_preamble or "").strip(),
             "BASE_SYSTEM_PROMPT": _read_section_file(CHAT_SYSTEM_BASE_FILE).strip(),
-            "TOOL_CALLING_PROMPT": _read_section_file(TOOL_CALLING_FILE).strip(),
-            "IMAGE_TOOL_CALLING_PROMPT": _read_section_file(IMAGE_TOOL_CALLING_FILE).strip(),
-            "TOOL_DEFINITIONS": str(tool_definitions or "").strip(),
-            "MEMORY_CORE": str(memory_core or "").strip(),
+            "TOOLS_PROMPT": str(tools_prompt or "").strip(),
             "MEMORY_PERSONA": str(memory_persona or "").strip(),
             "MEMORY_SCHEDULE": str(memory_schedule or "").strip(),
             "MEMORY_WORKBOOK": str(memory_workbook or "").strip(),
-            "MEMORY_OTHERS": str(memory_others or "").strip(),
+            "MEMORY_CORE": str(memory_core or "").strip(),
         },
     )
 

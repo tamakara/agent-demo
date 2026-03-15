@@ -61,14 +61,80 @@ export const logic = {
     const content = message.content;
     const parsedPayload = this.parseJsonObject(content);
 
-    if (messageKind === "tool_call" || messageKind === "tool_result") {
+    if (messageKind === "tool_call") {
+      if (parsedPayload) return { type: "tool_request", payload: parsedPayload };
+      return { type: "tool_request", payload: String(content || "") };
+    }
+
+    if (messageKind === "tool_result") {
+      if (parsedPayload) return { type: "tool_response", payload: parsedPayload };
+      return { type: "tool_response", payload: String(content || "") };
+    }
+
+    if (messageKind === "meta") {
       if (parsedPayload) {
-        return { type: messageKind, payload: parsedPayload };
+        const metaType = String(parsedPayload.type || "").trim().toLowerCase();
+        if (["llm_request", "llm_response", "llm_error", "state_refresh"].includes(metaType)) {
+          return { type: metaType, payload: parsedPayload };
+        }
+        return { type: "system_event", payload: parsedPayload };
       }
-      return { type: messageKind, payload: String(content || "") };
+      return { type: "system_event", payload: String(content || "") };
     }
 
     return { type: role, payload: content };
+  },
+
+  handleSseEvent(event) {
+    if (!event || typeof event !== "object") return;
+    const eventType = String(event.type || "").trim();
+    const payload = event.payload;
+
+    if (eventType === "assistant_final") {
+      ui.appendChat("assistant", payload?.content || "");
+      return;
+    }
+    if (eventType === "tool_request" || eventType === "tool_call") {
+      ui.appendChat("tool_request", payload);
+      return;
+    }
+    if (eventType === "tool_response" || eventType === "tool_result") {
+      ui.appendChat("tool_response", payload);
+      const imageInfo = this.extractGeneratedImage(payload);
+      if (imageInfo) ui.appendImageToChat(imageInfo);
+      return;
+    }
+    if (["llm_request", "llm_response", "llm_error", "state_refresh", "system_event"].includes(eventType)) {
+      ui.appendChat(eventType, payload);
+      return;
+    }
+    if (eventType === "memory_status") {
+      ui.updateTokenBoard(payload);
+      return;
+    }
+    if (eventType === "error") {
+      const message = payload && typeof payload === "object" ? String(payload.message || "") : String(payload || "");
+      ui.appendChat("error", message || "请求处理失败");
+    }
+  },
+
+  consumeSseBuffer(buffer, onEvent) {
+    const frames = buffer.split("\n\n");
+    const remainder = frames.pop() || "";
+    frames.forEach((frame) => {
+      const lines = frame.split("\n");
+      const dataLines = lines.filter((line) => line.startsWith("data:"));
+      if (!dataLines.length) return;
+      const dataText = dataLines.map((line) => line.replace(/^data:\s*/, "")).join("\n").trim();
+      if (!dataText) return;
+      try {
+        const event = JSON.parse(dataText);
+        onEvent(event);
+      } catch (_) {
+        // ignore malformed event payload
+      }
+    });
+    return remainder;
   },
 
   parseIntOrNull(value) {
@@ -327,7 +393,7 @@ export const logic = {
         const normalized = this.normalizeHistoryMessage(message);
         ui.appendChat(normalized.type, normalized.payload);
         const imageInfo = this.extractGeneratedImage(
-          normalized && normalized.type === "tool_result" ? normalized.payload : null
+          normalized && normalized.type === "tool_response" ? normalized.payload : null
         );
         if (imageInfo) ui.appendImageToChat(imageInfo);
       });
@@ -403,26 +469,17 @@ export const logic = {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let sseBuffer = "";
       while (true) {
         const { done, value } = await reader.read();
+        if (value) {
+          sseBuffer += decoder.decode(value, { stream: true });
+          sseBuffer = this.consumeSseBuffer(sseBuffer, (event) => this.handleSseEvent(event));
+        }
         if (done) break;
-        const chunk = decoder.decode(value);
-        const matches = [...chunk.matchAll(/data:\s*({.*})/g)];
-        matches.forEach((match) => {
-          try {
-            const event = JSON.parse(match[1]);
-            if (event.type === "assistant_final") ui.appendChat("assistant", event.payload.content);
-            else if (event.type === "tool_call") ui.appendChat(event.type, event.payload);
-            else if (event.type === "tool_result") {
-              ui.appendChat(event.type, event.payload);
-              const imageInfo = this.extractGeneratedImage(event.payload);
-              if (imageInfo) ui.appendImageToChat(imageInfo);
-            } else if (event.type === "memory_status") ui.updateTokenBoard(event.payload);
-          } catch (_) {
-            // ignore parse errors from incomplete chunks
-          }
-        });
       }
+      sseBuffer += decoder.decode();
+      sseBuffer = this.consumeSseBuffer(sseBuffer, (event) => this.handleSseEvent(event));
     } catch (err) {
       ui.appendChat("error", err.message);
     } finally {

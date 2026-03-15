@@ -94,11 +94,16 @@ def create_chat_router(container: AppContainer) -> APIRouter:
 
             def map_event(raw_event: dict[str, Any]) -> tuple[str, dict[str, Any]]:
                 event_name = str(raw_event.get("event") or "meta")
-                if event_name in {"tool_call", "tool_result"}:
-                    return event_name, raw_event
+                if event_name == "tool_call":
+                    return "tool_request", raw_event
+                if event_name == "tool_result":
+                    return "tool_response", raw_event
                 if event_name == "meta":
-                    return "meta", raw_event
-                return "meta", raw_event
+                    meta_type = str(raw_event.get("type", "")).strip().lower()
+                    if meta_type in {"llm_request", "llm_response", "llm_error", "state_refresh"}:
+                        return meta_type, raw_event
+                    return "system_event", raw_event
+                return "system_event", raw_event
 
             try:
                 while not process_task.done():

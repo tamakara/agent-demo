@@ -15,6 +15,71 @@ export const setFileSelectHandler = (handler) => {
 };
 
 export const ui = {
+  eventTitle(type) {
+    const normalized = String(type || "").trim().toLowerCase();
+    if (normalized === "tool_request" || normalized === "tool_call") return "🛠️ Tool 请求";
+    if (normalized === "tool_response" || normalized === "tool_result") return "📦 Tool 返回";
+    if (normalized === "llm_request") return "📡 LLM 请求";
+    if (normalized === "llm_response") return "📥 LLM 返回";
+    if (normalized === "llm_error") return "❌ LLM 错误";
+    if (normalized === "state_refresh") return "🔄 状态刷新";
+    if (normalized === "system_event" || normalized === "meta") return "🧩 系统事件";
+    if (normalized === "error") return "❌ 错误";
+    return `🔧 ${type}`;
+  },
+
+  eventSummary(type, content) {
+    const normalized = String(type || "").trim().toLowerCase();
+    if (!content || typeof content !== "object") return this.eventTitle(type);
+
+    if (normalized === "llm_request") {
+      const round = content.round != null ? `round ${content.round}` : "";
+      const model = content.request_body?.model ? `model ${content.request_body.model}` : "";
+      const extra = [round, model].filter(Boolean).join(" · ");
+      return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
+    }
+
+    if (normalized === "llm_response") {
+      const round = content.round != null ? `round ${content.round}` : "";
+      const latency = Number.isFinite(Number(content.latency_ms)) ? `${content.latency_ms}ms` : "";
+      const finishReason = content.finish_reason ? `finish=${content.finish_reason}` : "";
+      const functionName = content.function_name ? `fn=${content.function_name}` : "";
+      const extra = [round, latency, finishReason, functionName].filter(Boolean).join(" · ");
+      return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
+    }
+
+    if (normalized === "llm_error") {
+      const round = content.round != null ? `round ${content.round}` : "";
+      const errorText = String(content.error || "").trim();
+      if (round && errorText) return `${this.eventTitle(type)} · ${round} · ${errorText}`;
+      if (errorText) return `${this.eventTitle(type)} · ${errorText}`;
+      return this.eventTitle(type);
+    }
+
+    if (normalized === "tool_request" || normalized === "tool_call") {
+      const toolName = String(content.tool_name || "").trim();
+      const round = content.round != null ? `round ${content.round}` : "";
+      const extra = [round, toolName].filter(Boolean).join(" · ");
+      return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
+    }
+
+    if (normalized === "tool_response" || normalized === "tool_result") {
+      const toolName = String(content.tool_name || "").trim();
+      const round = content.round != null ? `round ${content.round}` : "";
+      const ok = content.result && typeof content.result === "object" && !content.result.error;
+      const status = ok ? "ok" : "error";
+      const extra = [round, toolName, status].filter(Boolean).join(" · ");
+      return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
+    }
+
+    if (normalized === "state_refresh") {
+      const reason = String(content.reason || "").trim();
+      return reason ? `${this.eventTitle(type)} · ${reason}` : this.eventTitle(type);
+    }
+
+    return this.eventTitle(type);
+  },
+
   buildImagePreviewUrl(treePath, { bustCache = true } = {}) {
     const query = new URLSearchParams({
       user_id: String(state.userId || ""),
@@ -46,9 +111,10 @@ export const ui = {
       pre.textContent = text;
       body.appendChild(pre);
     } else {
+      const summaryLabel = this.eventSummary(type, content);
       item.innerHTML = `
         <details class="chat-collapsible">
-          <summary>${type === "error" ? "❌ 错误" : `🔧 ${type}`}</summary>
+          <summary>${summaryLabel}</summary>
           <pre>${text}</pre>
         </details>`;
     }
