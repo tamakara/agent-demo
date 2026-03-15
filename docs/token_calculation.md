@@ -1,56 +1,47 @@
-# Token 计算机制详解
+﻿# Token 计算与刷盘机制（两层消息模型）
 
 ## 本文范围
 
-本文聚焦回答以下问题：
+本文回答：
 
-- 每次调用 `/chat/stream` 时，token 是如何被计算、入库、汇总的
-- 各分区（`resident` / `dialogue` / `tool` / `buffer`）如何贡献到总量
-- 何时触发自动刷盘，以及刷盘后 token 如何重建
-- OpenAI `usage` 与本地 token 记账之间的关系
+- 员工会话窗口预算如何切分
+- `messages` 的两层语义（生命周期分区 + 消息类型）
+- `/chat/stream` 调用时 token 如何计数与裁剪
+- 刷盘期间与刷盘完成后的消息迁移规则
 
 本文不覆盖：
 
 - 接口字段定义（见 `api_reference.md`）
-- SSE 事件格式（见 `sse_protocol.md`）
-- 数据表全量说明（见 `data_model.md`）
+- SSE 协议细节（见 `sse_protocol.md`）
 
-## 1. 两套口径：本地记账 vs 模型 usage
+## 1. 两套口径
 
-项目里同时存在两条 token 相关链路：
+项目同时保留两条 token 口径：
 
-1. 本地记账（核心预算依据）
-2. 模型返回 `usage`（辅助观测信息）
-
-| 口径 | 来源 | 用途 | 是否参与阈值判断 |
-|---|---|---|---|
-| 本地记账 token | `infra/llm/kimi_tokenizer_counter.py` | 上下文裁剪、状态面板、刷盘触发 | 是 |
-| 模型 `usage` | `response.usage` | 透传到 `assistant_final` 事件 | 否 |
+1. 本地记账 token（用于预算、裁剪、刷盘触发）
+2. 模型 `usage`（用于观测，不参与预算决策）
 
 关键点：
 
-- 阈值判断、刷盘调度、前端 Token 仪表盘全部基于“本地记账”。
-- `usage` 目前不落库，也不参与 `total_tokens` 计算。
+- 触发刷盘、前端状态面板、窗口裁剪均基于“本地记账 token”。
+- `assistant_final.usage` 不参与 `memory_status.total_tokens` 计算。
 
-## 2. 总预算与阈值切分
+## 2. 会话预算（固定 100%）
 
-### 2.1 配置来源
-
-- 用户总上限来自 `app_settings.context_total_token_limit`
-- 默认值 `200000`
-- 最小值保护 `20000`
-
-### 2.2 切分规则
-
-`domain/window_policy.py` 中按固定比例切分：
+`domain/window_policy.py` 采用固定比例：
 
 - `system_prompt_limit` = `10%`
 - `summary_limit` = `1%`
 - `recent_raw_limit` = `9%`
-- `recent_total_limit` = `summary_limit + recent_raw_limit`（10%）
-- `resident_limit` = `system_prompt_limit + recent_total_limit`（20%）
-- `dialogue_limit` = `total_limit - resident_limit`（约 80%）
+- `recent_total_limit` = `summary + recent_raw`（10%）
+- `resident_limit` = `system + recent_total`（20%）
+- `dialogue_limit` = `total - resident_limit`（80%）
 - `flush_trigger` = `total_limit`
+
+另外：
+
+- `buffer_limit = dialogue_limit`
+- `buffer` 不属于固定 100%，仅在刷盘期间临时启用
 
 公式：
 
@@ -61,221 +52,99 @@ summary_limit       = floor(normalized_total * 1%)
 recent_raw_limit    = floor(normalized_total * 9%)
 resident_limit      = system_prompt_limit + summary_limit + recent_raw_limit
 dialogue_limit      = normalized_total - resident_limit
+buffer_limit        = dialogue_limit
 flush_trigger       = normalized_total
 ```
 
-以 `200000` 为例：
+## 3. 两层消息模型
 
-- `system_prompt_limit = 20000`
-- `summary_limit = 2000`
-- `recent_raw_limit = 18000`
-- `resident_limit = 40000`
-- `dialogue_limit = 160000`
-- `flush_trigger = 200000`
+### 3.1 生命周期分区（`zone`）
 
-```mermaid
-pie showData
-    title context_total_token_limit 预算分配
-    "system + memory (10%)" : 10
-    "summary (1%)" : 1
-    "recent_raw (9%)" : 9
-    "dialogue/tool/buffer (~80%)" : 80
-```
+- `dialogue`：主对话区
+- `buffer`：刷盘期间新增消息区
+- `resident_recent`：刷盘后保留的近期连续对话
 
-## 3. 单次调用的 token 计算时序
+### 3.2 消息类型（`message_kind`）
 
-```mermaid
-flowchart TD
-    A["收到用户消息"] --> B["读取 total_token_limit 并计算 thresholds"]
-    B --> C["写入 user 消息<br/>zone=dialogue 或 buffer<br/>token_count=count_tokens(content)"]
-    C --> D["构建 prompt<br/>resident_recent/dialogue/tool/buffer 按预算裁剪"]
-    D --> E["调用 LLM + 工具循环"]
-    E --> F["保存工具事件<br/>zone=tool<br/>token_count=count_tokens(event_json)"]
-    F --> G["保存 assistant 文本<br/>zone=dialogue 或 buffer<br/>token_count=count_tokens(content)"]
-    G --> H["汇总各 zone token"]
-    H --> I{total_tokens >= flush_trigger?}
-    I -- 否 --> J["返回 memory_status"]
-    I -- 是 --> K["标记 is_flushing=true<br/>并调度后台刷盘"]
-    K --> J
-```
+- `chat`：普通 user/assistant 消息
+- `tool_call`：工具调用事件
+- `tool_result`：工具结果事件
 
-## 4. 各部分 token 的具体计算方式
+设计要点：
 
-### 4.1 计数器实现
+- `zone` 只表示“消息处于哪个生命周期阶段”。
+- 工具事件不再占用独立 `zone`，而是通过 `message_kind` 区分。
 
-`KimiTokenizerCounter.count_tokens(text, model)`：
+## 4. 单次聊天调用计数流程
 
-- 基于本地 `infra/llm/tokenizer_assets/tiktoken.model` 构建 Kimi K2.5 编码器
-- 使用官方 `tokenization_kimi.py` 的 `pat_str` 与 `tokenizer_config.json` 特殊 token 映射
-- 通过本地 `tiktoken` 编码直接得到 token 数，不依赖远端 SDK
+1. 写入用户消息：
+- 非刷盘：写入 `zone=dialogue, message_kind=chat`
+- 刷盘中：写入 `zone=buffer, message_kind=chat`（先检查 `buffer_limit`）
 
-`truncate_text_to_tokens(text, limit, model)` 通过“编码后按上限切片再解码”控制预算。
+2. 组装 LLM 输入：
+- `resident_recent` 按 `recent_raw_limit` 裁剪
+- active 消息从 `zone in {dialogue, buffer}` 读取并按 `dialogue_limit` 裁剪
+- active 内通过 `message_kind` 将工具事件恢复为 OpenAI `tool_calls` / `tool` 协议消息
 
-### 4.2 `resident_static_tokens`（常驻静态）
+3. 工具事件持久化：
+- `tool_call -> message_kind=tool_call`
+- `tool_result -> message_kind=tool_result`
+- 生命周期分区跟随当前会话状态（`dialogue` 或 `buffer`）
 
-来源：
+4. 写入最终 assistant 文本：
+- `message_kind=chat`
+- 分区同上（`dialogue` 或 `buffer`）
 
-- system 模板与底层提示词（`prompts/chat_system_template.md` + `prompts/chat_system_base.md` + `prompts/tool_calling.md`）
-- 动态工具清单（由 `TOOL_SCHEMAS` 渲染）
-- 记忆文件内容
-- 工作台摘要（单独 section）
-
-计算步骤：
-
-1. 先生成两段 section：
-   - `系统提示词与记忆文件`（预算 `system_prompt_limit`）
-   - `工作台摘要`（预算 `summary_limit`）
-2. 每段都先算标题 token，再裁剪正文到剩余 budget
-3. 将拼好的完整 system 文本整体再计一次 token，得到 `resident_static_tokens`
-
-### 4.3 `resident_recent_tokens`（常驻近期）
-
-来源是 `messages.zone = resident_recent`。
-
-计算方式：
-
-1. 按时间升序读取所有 `resident_recent` 消息
-2. 从最新往旧回收，累计到 `recent_raw_limit` 为止
-3. 行内 token 优先读取持久化字段 `token_count`，若异常则 fallback 到实时重算
-
-### 4.4 `dialogue_tokens`
-
-来自数据库聚合：
-
-- `SUM(token_count where zone='dialogue')`
-- `SUM(token_count where zone='tool')`
-
-二者相加得到：
-
-```text
-dialogue_tokens = zone(dialogue) + zone(tool)
-```
-
-### 4.5 `buffer_tokens`
-
-来自数据库聚合：
-
-```text
-buffer_tokens = zone(buffer)
-```
-
-### 4.6 `total_tokens`
-
-最终状态公式：
+5. 汇总状态：
 
 ```text
 resident_tokens = resident_static_tokens + resident_recent_tokens
-total_tokens = resident_tokens + dialogue_tokens + buffer_tokens
+dialogue_tokens = SUM(zone='dialogue')
+buffer_tokens   = SUM(zone='buffer')
+total_tokens    = resident_tokens + dialogue_tokens + buffer_tokens
 ```
 
-```mermaid
-graph LR
-    A[resident_static_tokens] --> B[resident_tokens]
-    C[resident_recent_tokens] --> B
-    D[SUM zone=dialogue] --> E[dialogue_tokens]
-    F[SUM zone=tool] --> E
-    G[SUM zone=buffer] --> H[buffer_tokens]
-    B --> I[total_tokens]
-    E --> I
-    H --> I
-```
+6. 自动刷盘触发：
 
-## 5. 刷盘期间的 token 行为
+- 仅当 `is_flushing=false` 且 `total_tokens >= flush_trigger` 时标记刷盘。
 
-### 5.1 进入刷盘前后分区行为
+## 5. 刷盘生命周期
 
-- `is_flushing=false` 时：新消息进入 `dialogue`
-- `is_flushing=true` 时：新消息进入 `buffer`
-- 这样可以避免刷盘时对正在归档的上下文造成污染
+### 5.1 刷盘期间
 
-### 5.2 刷盘核心步骤
+- 旧 `dialogue` 保持不变（作为归档对象）
+- 新增消息进入 `buffer`
+- LLM 调用时上下文来自 `dialogue + buffer`（仍受 `dialogue_limit` 裁剪）
+- 若 `buffer` 超过 `buffer_limit`，拒绝新消息
 
-1. 读取 `dialogue + tool` 作为归档输入，拼接 `prompts/flush_archive.md` 后调用 LLM 生成总结并允许工具写记忆
-2. 回收最近对话：从 `dialogue + buffer` 中按 `recent_raw_limit` 回收 `user/assistant`
-3. 清空当前会话全部消息
-4. 将回收结果重建为 `zone=resident_recent`，并重新计 token
-5. 更新摘要，设置 `is_flushing=false`
+### 5.2 刷盘完成（当前实现）
 
-```mermaid
-sequenceDiagram
-    participant Chat as Chat请求
-    participant MC as MemoryContext
-    participant DB as SQLite
-    participant Flush as Flush任务
+1. 读取旧 `dialogue`，生成归档摘要并回写长期记忆
+2. 从旧 `dialogue` 摘取近期 `chat` 消息，回填 `resident_recent`
+3. 收集 `buffer` 全量消息
+4. 清空会话消息
+5. 将 `buffer` 消息迁移到新的 `dialogue`
+6. 更新摘要并设置 `is_flushing=false`
 
-    Chat->>MC: process_chat()
-    MC->>DB: 写 user/dialogue token_count
-    MC->>DB: 写 tool/dialogue token_count
-    MC->>DB: 写 assistant/dialogue token_count
-    MC->>MC: 计算 total_tokens
-    alt 达到阈值
-        MC->>DB: set is_flushing=true
-        MC-->>Flush: 调度后台 flush
-        Chat->>MC: 新消息进入 buffer 分区
-    end
-    Flush->>DB: 读取 dialogue+tool 归档
-    Flush->>DB: 按预算回收 dialogue+buffer
-    Flush->>DB: clear_messages()
-    Flush->>DB: 回填 resident_recent + token_count
-    Flush->>DB: set is_flushing=false
-```
+效果：
 
-## 6. `usage` 字段的真实含义与边界
+- 旧 `dialogue` 被归档并摘取到 `resident_recent`
+- 刷盘期间新增内容（原 `buffer`）成为新的主对话区
 
-`infra/chat/openai_gateway.py` 在每一轮模型请求后执行：
+## 6. 快速排障
 
-- `latest_usage = extract_usage(response)`
+当 token 行为不符合预期时，建议顺序检查：
 
-如果存在多轮工具调用，`latest_usage` 会被后续轮覆盖，最终返回“最后一轮”的 usage。
+1. `app_settings.context_total_token_limit`
+2. `memory_status.thresholds`
+3. `messages` 中 `zone/message_kind/token_count` 分布
+4. `is_flushing` 状态与 `buffer` 是否超过上限
 
-在 SSE 中，`assistant_final` 会附带：
-
-```json
-{
-  "content": "...",
-  "usage": { "...": "..." }
-}
-```
-
-当前边界：
-
-- `usage` 不会写入 `messages` 表
-- `usage` 不参与 `memory_status.total_tokens` 计算
-- 前端 Token 仪表盘使用的是 `memory_status`，不是 `assistant_final.usage`
-
-## 7. 自检与排障建议
-
-当你怀疑 token 异常时，可按下面顺序核对：
-
-1. 看 `app_settings.context_total_token_limit` 是否符合预期
-2. 看 `memory_status.thresholds` 是否按规则切分
-3. 核对 `messages` 表中各 `zone` 的 `token_count` 累计
-4. 核对 `resident_recent` 是否被 `recent_raw_limit` 截断
-5. 区分“本地总量”与“模型 usage”是否被误混用
-
-可直接使用如下 SQL 快速检查：
+SQL 示例：
 
 ```sql
--- 1) 查看分区累计
-SELECT zone, COALESCE(SUM(token_count), 0) AS total_tokens
+SELECT zone, message_kind, COALESCE(SUM(token_count), 0) AS total_tokens
 FROM messages
 WHERE user_id = ? AND session_id = ?
-GROUP BY zone;
-
--- 2) 查看最近消息及 token
-SELECT id, role, zone, token_count, created_at
-FROM messages
-WHERE user_id = ? AND session_id = ?
-ORDER BY id DESC
-LIMIT 50;
+GROUP BY zone, message_kind;
 ```
-
-## 8. 关键代码索引
-
-- 阈值策略：`domain/window_policy.py`
-- token 计数器：`infra/llm/kimi_tokenizer_counter.py`
-- prompt 预算裁剪：`domain/prompt_composer.py`
-- 聊天主流程：`app/chat/services/memory_context_service.py`
-- `usage` 提取：`infra/llm/request_builder.py`
-- 模型调用与工具循环：`infra/chat/openai_gateway.py`
-- token 聚合 SQL：`infra/sqlite/repository.py`

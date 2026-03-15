@@ -11,13 +11,13 @@ from app.chat.use_cases.memory_status_use_case import MemoryStatusUseCase
 from app.storage.services.memory_file_service import MemoryFileService
 from app.user.services.employee_service import EmployeeService
 from app.user.services.settings_service import SettingsService
-from infra.chat.kimi_tokenizer_counter import KimiTokenizerCounter
-from infra.chat.openai_gateway import OpenAIGateway
-from infra.storage.file_repository import FileMemoryRepository
+from infra.llm.kimi_tokenizer_counter import KimiTokenizerCounter
+from infra.llm.openai_gateway import OpenAIGateway
+from infra.memory.file_repository import FileMemoryRepository
 from infra.tools.builtin_tools import BuiltinToolRunner
 from infra.tools.clock import SystemClock
 from infra.tools.schema_provider import ToolSchemaProvider
-from infra.user.sqlite_repository import SQLiteRepository
+from infra.sqlite.repository import SQLiteRepository
 
 
 @dataclass(slots=True)

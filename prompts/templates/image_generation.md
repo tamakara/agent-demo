@@ -1,0 +1,4 @@
+﻿{{IMAGE_PROMPT_BASE}}
+
+用户原始需求：
+{{USER_PROMPT}}

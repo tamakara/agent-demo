@@ -40,6 +40,7 @@ class EmployeeService:
             employee_id=employee_id,
             session_id=str(data.get("session_id", "")),
             role=str(data.get("role", "")),
+            message_kind=str(data.get("message_kind", "chat")),
             content=str(data.get("content", "")),
             zone=str(data.get("zone", "")),
             created_at=str(data.get("created_at", "")),

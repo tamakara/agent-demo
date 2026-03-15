@@ -46,6 +46,7 @@ class EmployeeMessage:
     employee_id: str
     session_id: str
     role: str
+    message_kind: str
     content: str
     zone: str
     created_at: str

@@ -39,10 +39,10 @@ common: 可被所有层复用
 
 ## 3. 适配器实现（infra）
 
-- `infra/user/sqlite_repository.py`：实现 session/message/settings 仓储
-- `infra/storage/file_repository.py`：实现记忆文件仓储
-- `infra/chat/openai_gateway.py`：实现 LLM 网关
-- `infra/chat/kimi_tokenizer_counter.py`：实现 Kimi K2.5 token 计数器
+- `infra/sqlite/repository.py`：实现 session/message/settings 仓储
+- `infra/memory/file_repository.py`：实现记忆文件仓储
+- `infra/llm/openai_gateway.py`：实现 LLM 网关
+- `infra/llm/kimi_tokenizer_counter.py`：实现 Kimi K2.5 token 计数器
 - `infra/tools/clock.py`：实现时钟端口
 - `infra/tools/schema_provider.py`：实现工具 schema 提供器
 
@@ -56,6 +56,6 @@ common: 可被所有层复用
 
 1. 在 `domain/*` 中直接访问 SQLite
 2. 在 `api/routes.py` 中直接写 SQL
-3. 在 `app/use_cases/*` 中直接 new OpenAI client
+3. 在 `app/chat/use_cases/*` 中直接 new OpenAI client
 
 上述反例都会破坏可测试性与可替换性。

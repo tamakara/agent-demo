@@ -18,12 +18,14 @@ from app.ports.repositories import (
     TokenCounterPort,
     UserSettingsRepositoryPort,
 )
+from common.errors import ValidationError
 from domain.models import ChatProcessResult, LLMConfig, MemoryStatus
 from domain.prompt_composer import PromptComposer
-from domain.prompt_templates import load_flush_archive_prompt
+from domain.prompt_templates import compose_flush_archive_system_prompt
 from domain.tool_protocol import (
     build_message_from_tool_event_row,
     is_tool_persistable_event,
+    normalize_message_kind,
     normalize_prompt_role,
     sanitize_active_rows_for_tool_protocol,
 )
@@ -60,6 +62,16 @@ class MemoryContextService:
             truncate_text_to_tokens=self.token_counter.truncate_text_to_tokens,
         )
 
+    @staticmethod
+    def _ensure_buffer_capacity(*, existing_tokens: int, incoming_tokens: int, buffer_limit: int) -> None:
+        """刷盘期间校验缓冲区容量，超限时拒绝新消息。"""
+        if existing_tokens + incoming_tokens <= buffer_limit:
+            return
+        raise ValidationError(
+            "当前会话正在刷盘，缓冲区已满，请稍后重试。"
+            f"（buffer={existing_tokens} + incoming={incoming_tokens} > limit={buffer_limit}）"
+        )
+
     def _list_tool_schemas(self) -> list[dict[str, Any]]:
         """返回当前可用于提示词渲染的工具 Schema 列表。"""
         provider = self.tool_schema_provider
@@ -94,23 +106,47 @@ class MemoryContextService:
         session_id: str,
         events: list[dict[str, Any]],
         tokenizer_model: str,
+        zone: str,
+        buffer_limit: int,
     ) -> None:
-        """将可持久化的工具事件落库到 ``tool`` 分区。"""
+        """将可持久化的工具事件落库到目标生命周期分区。"""
+        buffer_tokens = 0
+        if zone == "buffer":
+            zone_tokens = await self.message_repo.sum_tokens_by_zone(user_id, session_id)
+            buffer_tokens = zone_tokens.get("buffer", 0)
+
         for event in events:
             if not is_tool_persistable_event(event):
                 continue
-            # tool_call 用 assistant 角色承载，tool_result 用 tool 角色承载，
-            # 以便后续重建符合协议顺序的上下文。
-            role = "assistant" if event.get("event") == "tool_call" else "tool"
+            event_name = str(event.get("event", "")).strip()
+            if event_name == "tool_call":
+                role = "assistant"
+                message_kind = "tool_call"
+            elif event_name == "tool_result":
+                role = "tool"
+                message_kind = "tool_result"
+            else:
+                continue
+
             content = json.dumps(event, ensure_ascii=False)
+            token_count = self.token_counter.count_tokens(content, tokenizer_model)
+            if zone == "buffer":
+                self._ensure_buffer_capacity(
+                    existing_tokens=buffer_tokens,
+                    incoming_tokens=token_count,
+                    buffer_limit=buffer_limit,
+                )
             await self.message_repo.add_message(
                 user_id=user_id,
                 session_id=session_id,
                 role=role,
+                message_kind=message_kind,
                 content=content,
-                zone="tool",
-                token_count=self.token_counter.count_tokens(content, tokenizer_model),
+                zone=zone,
+                token_count=token_count,
             )
+            if zone == "buffer":
+                buffer_tokens += token_count
 
     async def _compose_resident_system_text(
         self,
@@ -166,7 +202,7 @@ class MemoryContextService:
         active_all = await self.message_repo.list_messages(
             user_id,
             session_id,
-            zones=["dialogue", "tool", "buffer"],
+            zones=["dialogue", "buffer"],
             ascending=True,
         )
         active_messages = self.prompt_composer.take_latest_rows_by_token_budget(
@@ -184,8 +220,9 @@ class MemoryContextService:
 
         message_list: list[dict[str, Any]] = [{"role": "system", "content": resident_text}]
         for row in resident_recent + active_messages:
-            if str(row.get("zone", "")) == "tool":
-                # tool 分区消息需要还原为 OpenAI tool_call/tool_result 结构。
+            message_kind = normalize_message_kind(row)
+            if message_kind in {"tool_call", "tool_result"}:
+                # 工具类型消息需要还原为 OpenAI tool_call/tool_result 结构。
                 tool_message = build_message_from_tool_event_row(row)
                 if tool_message is not None:
                     message_list.append(tool_message)
@@ -255,7 +292,7 @@ class MemoryContextService:
         )
         resident_tokens = resident_static_tokens + resident_recent_tokens
 
-        dialogue_tokens = zone_tokens.get("dialogue", 0) + zone_tokens.get("tool", 0)
+        dialogue_tokens = zone_tokens.get("dialogue", 0)
         buffer_tokens = zone_tokens.get("buffer", 0)
         total_tokens = resident_tokens + dialogue_tokens + buffer_tokens
 
@@ -318,13 +355,22 @@ class MemoryContextService:
             )
 
             message_zone = "buffer" if session["is_flushing"] else "dialogue"
+            user_token_count = self.token_counter.count_tokens(user_message, tokenizer_model)
+            if message_zone == "buffer":
+                zone_tokens = await self.message_repo.sum_tokens_by_zone(user_id, session_id)
+                self._ensure_buffer_capacity(
+                    existing_tokens=zone_tokens.get("buffer", 0),
+                    incoming_tokens=user_token_count,
+                    buffer_limit=thresholds.buffer_limit,
+                )
             await self.message_repo.add_message(
                 user_id=user_id,
                 session_id=session_id,
                 role="user",
+                message_kind="chat",
                 content=user_message,
                 zone=message_zone,
-                token_count=self.token_counter.count_tokens(user_message, tokenizer_model),
+                token_count=user_token_count,
             )
             prompt_messages = await self._build_chat_messages(
                 user_id=user_id,
@@ -354,16 +400,27 @@ class MemoryContextService:
                 session_id=session_id,
                 events=live_tool_events,
                 tokenizer_model=tokenizer_model,
+                zone=assistant_zone,
+                buffer_limit=thresholds.buffer_limit,
             )
 
             assistant_text = agent_result.assistant_text or ""
+            assistant_token_count = self.token_counter.count_tokens(assistant_text, tokenizer_model)
+            if assistant_zone == "buffer":
+                zone_tokens = await self.message_repo.sum_tokens_by_zone(user_id, session_id)
+                self._ensure_buffer_capacity(
+                    existing_tokens=zone_tokens.get("buffer", 0),
+                    incoming_tokens=assistant_token_count,
+                    buffer_limit=thresholds.buffer_limit,
+                )
             await self.message_repo.add_message(
                 user_id=user_id,
                 session_id=session_id,
                 role="assistant",
+                message_kind="chat",
                 content=assistant_text,
                 zone=assistant_zone,
-                token_count=self.token_counter.count_tokens(assistant_text, tokenizer_model),
+                token_count=assistant_token_count,
             )
 
             status = await self.get_status(user_id, employee_id, session_id, tokenizer_model)
@@ -429,10 +486,10 @@ class MemoryContextService:
             dialogue_rows = await self.message_repo.list_messages(
                 user_id,
                 session_id,
-                zones=["dialogue", "tool"],
+                zones=["dialogue"],
                 ascending=True,
             )
-            # 将对话区和工具区拼成归档文本，作为“记忆整理专员”的输入。
+            # 将旧 dialogue 区（含 chat/tool_* 类型）拼成归档文本，作为“记忆整理专员”的输入。
             dialogue_text = "\n".join(
                 [f"[{row['role']}] {row['content']}" for row in dialogue_rows if str(row["content"]).strip()]
             )
@@ -463,9 +520,11 @@ class MemoryContextService:
         try:
             if dialogue_text.strip():
                 # 对话非空时调用 LLM 执行归档总结，并允许工具写入记忆文件。
-                archive_prompt = load_flush_archive_prompt()
                 archive_messages = [
-                    {"role": "system", "content": f"{base_system}\n\n{archive_prompt}"},
+                    {
+                        "role": "system",
+                        "content": compose_flush_archive_system_prompt(resident_base_system=base_system),
+                    },
                     {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
                 ]
                 archive_result = await self.llm_gateway.run_with_tools(
@@ -479,14 +538,22 @@ class MemoryContextService:
                 summary_text = archive_result.assistant_text.strip() or summary_text
 
             async with lock:
-                # 按最近窗口预算回收可保留消息，随后清空并重建 resident_recent 分区。
+                # 按最近窗口预算从旧 dialogue 回收可保留消息。
                 latest_dialogue_desc = await self.message_repo.list_messages(
                     user_id,
                     session_id,
-                    zones=["dialogue", "buffer"],
+                    zones=["dialogue"],
                     roles=["user", "assistant"],
+                    message_kinds=["chat"],
                     ascending=False,
                     limit=5000,
+                )
+                # 收集刷盘期间新增的 buffer 消息，刷盘完成后迁回 dialogue。
+                buffer_rows = await self.message_repo.list_messages(
+                    user_id,
+                    session_id,
+                    zones=["buffer"],
+                    ascending=True,
                 )
                 latest_dialogue = self.prompt_composer.take_latest_rows_from_desc_by_budget(
                     rows_descending=latest_dialogue_desc,
@@ -502,9 +569,23 @@ class MemoryContextService:
                         user_id=user_id,
                         session_id=session_id,
                         role=role,
+                        message_kind="chat",
                         content=content,
                         zone="resident_recent",
                         token_count=self.token_counter.count_tokens(content, tokenizer_model),
+                    )
+                for row in buffer_rows:
+                    content = str(row.get("content", ""))
+                    role = str(row.get("role", "assistant"))
+                    message_kind = str(row.get("message_kind", "chat")).strip() or "chat"
+                    await self.message_repo.add_message(
+                        user_id=user_id,
+                        session_id=session_id,
+                        role=role,
+                        message_kind=message_kind,
+                        content=content,
+                        zone="dialogue",
+                        token_count=self.prompt_composer.row_token_count(row, tokenizer_model),
                     )
 
                 await self.session_repo.update_workbench_summary(user_id, session_id, summary_text)

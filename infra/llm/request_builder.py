@@ -40,6 +40,12 @@ def normalize_tool_name(name: Any, fallback_suffix: str) -> str:
     """规范化工具名，空值时生成兜底名称。"""
     candidate = str(name or "").strip()
     if candidate:
+        lowered = candidate.lower()
+        for prefix in ("functions.", "function.", "tools.", "tool."):
+            if lowered.startswith(prefix):
+                candidate = candidate[len(prefix) :]
+                break
+    if candidate:
         return candidate
     return f"{FALLBACK_TOOL_NAME_PREFIX}_{fallback_suffix}"
 
@@ -56,7 +62,7 @@ def stringify_tool_arguments(raw_arguments: Any) -> str:
 
 
 def normalize_tool_call(raw_tool_call: Any, fallback_id: str) -> dict[str, Any]:
-    """兼容多种 SDK 返回结构，统一为标准 tool_call 字典。"""
+    """将输入统一为标准 tool_call 字典。"""
     if hasattr(raw_tool_call, "model_dump"):
         raw_tool_call = raw_tool_call.model_dump()
 
@@ -68,7 +74,7 @@ def normalize_tool_call(raw_tool_call: Any, fallback_id: str) -> dict[str, Any]:
             function_data = {}
         normalized_id = str(raw_tool_call.get("id") or fallback_id)
         normalized_name = normalize_tool_name(
-            function_data.get("name", ""),
+            function_data.get("name", raw_tool_call.get("name", "")),
             fallback_suffix=normalized_id,
         )
         return {
@@ -76,7 +82,9 @@ def normalize_tool_call(raw_tool_call: Any, fallback_id: str) -> dict[str, Any]:
             "type": "function",
             "function": {
                 "name": normalized_name,
-                "arguments": stringify_tool_arguments(function_data.get("arguments", "{}")),
+                "arguments": stringify_tool_arguments(
+                    function_data.get("arguments", raw_tool_call.get("arguments", "{}"))
+                ),
             },
         }
 
@@ -86,6 +94,9 @@ def normalize_tool_call(raw_tool_call: Any, fallback_id: str) -> dict[str, Any]:
     if function_data is not None:
         name = str(getattr(function_data, "name", ""))
         arguments = getattr(function_data, "arguments", "{}")
+    if not name:
+        name = str(getattr(raw_tool_call, "name", ""))
+        arguments = getattr(raw_tool_call, "arguments", arguments)
     normalized_id = str(getattr(raw_tool_call, "id", fallback_id))
     normalized_name = normalize_tool_name(name, fallback_suffix=normalized_id)
     return {
@@ -107,11 +118,8 @@ def coerce_content(content: Any) -> str:
     if isinstance(content, list):
         chunks: list[str] = []
         for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text":
-                    chunks.append(str(item.get("text", "")))
-                else:
-                    chunks.append(str(item))
+            if isinstance(item, dict) and item.get("type") == "text":
+                chunks.append(str(item.get("text", "")))
             else:
                 chunks.append(str(item))
         return "".join(chunks)
@@ -137,10 +145,25 @@ def extract_message(response: Any) -> Any:
     choices = getattr(response, "choices", None)
     if not isinstance(choices, list) or not choices:
         raise ValueError("LLM 返回结果缺少 choices 字段")
-    message = getattr(choices[0], "message", None)
+    first_choice = choices[0]
+    message = getattr(first_choice, "message", None)
+    if message is None and isinstance(first_choice, dict):
+        message = first_choice.get("message")
     if message is None:
         raise ValueError("LLM 返回结果缺少 message 字段")
     return message
+
+
+def extract_raw_tool_calls(message: Any) -> list[Any]:
+    """从 message 提取标准 ``tool_calls``。"""
+    raw_tool_calls = getattr(message, "tool_calls", None)
+    if raw_tool_calls is None and isinstance(message, dict):
+        raw_tool_calls = message.get("tool_calls")
+    if not raw_tool_calls:
+        return []
+    if isinstance(raw_tool_calls, list):
+        return raw_tool_calls
+    return [raw_tool_calls]
 
 
 def serialize_tool_content(payload: Any) -> str:
@@ -168,4 +191,3 @@ def build_typed_messages(messages: list[dict[str, Any]]) -> Iterable[ChatComplet
 def build_typed_tools() -> Iterable[ChatCompletionToolUnionParam]:
     """将工具 schema 列表转为 OpenAI SDK 所需类型。"""
     return cast(Iterable[ChatCompletionToolUnionParam], TOOL_SCHEMAS)
-

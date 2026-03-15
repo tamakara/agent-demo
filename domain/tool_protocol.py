@@ -53,6 +53,14 @@ def normalize_prompt_role(raw_role: Any) -> str:
     return "assistant"
 
 
+def normalize_message_kind(row: dict[str, Any]) -> str:
+    """规范化消息类型。"""
+    candidate = str(row.get("message_kind", "")).strip().lower()
+    if candidate in {"chat", "tool_call", "tool_result"}:
+        return candidate
+    return "chat"
+
+
 def sanitize_active_rows_for_tool_protocol(
     rows: list[dict[str, Any]],
     *,
@@ -65,7 +73,7 @@ def sanitize_active_rows_for_tool_protocol(
     last_role = previous_role if previous_role in {"user", "assistant", "tool"} else None
 
     for row in rows:
-        if str(row.get("zone", "")) != "tool":
+        if normalize_message_kind(row) not in {"tool_call", "tool_result"}:
             sanitized.append(row)
             normalized_role = normalize_prompt_role(row.get("role", "assistant"))
             last_role = "assistant" if normalized_role == "tool" else normalized_role

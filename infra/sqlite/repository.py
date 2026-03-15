@@ -107,6 +107,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     user_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
                     role TEXT NOT NULL,
+                    message_kind TEXT NOT NULL DEFAULT 'chat',
                     content TEXT NOT NULL,
                     zone TEXT NOT NULL,
                     token_count INTEGER NOT NULL DEFAULT 0,
@@ -117,10 +118,17 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 );
                 """
             )
+            self._assert_messages_schema(conn)
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_messages_user_session_zone
                 ON messages(user_id, session_id, zone, id);
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_messages_user_session_zone_kind
+                ON messages(user_id, session_id, zone, message_kind, id);
                 """
             )
             conn.execute(
@@ -157,6 +165,19 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             """,
             (DEFAULT_TOKENIZER_MODEL, DEFAULT_TOKENIZER_MODEL),
         )
+
+    @staticmethod
+    def _assert_messages_schema(conn: sqlite3.Connection) -> None:
+        """校验 ``messages`` 表符合当前版本结构。"""
+        columns = {
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(messages);").fetchall()
+            if row["name"] is not None
+        }
+        if "message_kind" not in columns:
+            raise RuntimeError(
+                "数据库 messages 表缺少 `message_kind` 列，请重建数据库后再启动。"
+            )
 
     @staticmethod
     def _ensure_global_llm_config_seed(conn: sqlite3.Connection, user_id: str) -> None:
@@ -344,6 +365,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
         user_id: str,
         session_id: str,
         role: str,
+        message_kind: str,
         content: str,
         zone: str,
         token_count: int,
@@ -354,10 +376,10 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             conn = self._ensure_conn()
             cursor = conn.execute(
                 """
-                INSERT INTO messages(user_id, session_id, role, content, zone, token_count)
-                VALUES (?, ?, ?, ?, ?, ?);
+                INSERT INTO messages(user_id, session_id, role, message_kind, content, zone, token_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
                 """,
-                (user_id, session_id, role, content, zone, token_count),
+                (user_id, session_id, role, message_kind, content, zone, token_count),
             )
             self._touch_session(conn, user_id, session_id)
             conn.commit()
@@ -370,18 +392,19 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
         *,
         zones: Sequence[str] | None = None,
         roles: Sequence[str] | None = None,
+        message_kinds: Sequence[str] | None = None,
         ascending: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """按过滤条件查询消息列表。"""
         await self.ensure_session(user_id, session_id)
         query = (
-            "SELECT id, user_id, session_id, role, content, zone, token_count, created_at "
+            "SELECT id, user_id, session_id, role, message_kind, content, zone, token_count, created_at "
             "FROM messages WHERE user_id = ? AND session_id = ?"
         )
         params: list[Any] = [user_id, session_id]
 
-        # 通过参数化占位符拼接 IN 子句，避免 SQL 注入并兼容动态过滤。
+        # 通过参数化占位符拼接 IN 子句，避免 SQL 注入并支持动态过滤。
         if zones:
             placeholders = ",".join(["?"] * len(zones))
             query += f" AND zone IN ({placeholders})"
@@ -390,6 +413,10 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             placeholders = ",".join(["?"] * len(roles))
             query += f" AND role IN ({placeholders})"
             params.extend(roles)
+        if message_kinds:
+            placeholders = ",".join(["?"] * len(message_kinds))
+            query += f" AND message_kind IN ({placeholders})"
+            params.extend(message_kinds)
 
         query += " ORDER BY id " + ("ASC" if ascending else "DESC")
         if limit is not None:
@@ -403,7 +430,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             return [dict(row) for row in rows]
 
     async def sum_tokens_by_zone(self, user_id: str, session_id: str) -> dict[str, int]:
-        """按分区汇总 token 消耗。"""
+        """按生命周期分区汇总 token 消耗。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()

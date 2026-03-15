@@ -12,11 +12,11 @@
 
 ### 1) `image_gen_edit`
 
-用途：调用 OpenAI 兼容接口 `v1/images/generations` 生成单张图片并落盘到员工 workspace。
+用途：调用 OpenAI 接口 `v1/images/generations` 生成单张图片并落盘到员工 workspace。
 
 关键行为：
 - 模型固定为 `seedream-4-5`。
-- 为兼容 `seedream-4-5` 参数能力，请求中不再传 `output_format` 参数，避免上游 `InvalidParameter`。
+- 请求中不传 `output_format` 参数，避免上游 `InvalidParameter`。
 - `api_key/base_url` 复用当前会话的 LLM 配置（与聊天模型同一套鉴权和网关）。
 - 通过 OpenAI Python SDK `client.images.generate(...)` 发起请求，等价于请求路径 `POST {base_url}/images/generations`。
 - 工具内部使用 `response_format=b64_json`，将返回内容解码并保存为本地文件。

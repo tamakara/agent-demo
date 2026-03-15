@@ -52,11 +52,12 @@ class MessageRepositoryPort(Protocol):
         user_id: str,
         session_id: str,
         role: str,
+        message_kind: str,
         content: str,
         zone: str,
         token_count: int,
     ) -> int:
-        """新增一条消息并返回消息 ID。"""
+        """新增一条消息并返回消息 ID（``zone`` 为生命周期，``message_kind`` 为消息类型）。"""
         ...
 
     async def list_messages(
@@ -66,6 +67,7 @@ class MessageRepositoryPort(Protocol):
         *,
         zones: Sequence[str] | None = None,
         roles: Sequence[str] | None = None,
+        message_kinds: Sequence[str] | None = None,
         ascending: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:

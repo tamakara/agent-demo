@@ -103,7 +103,8 @@ export const ui = {
     const limit = thresholds.total_limit || 200000;
     const residentBudget = thresholds.resident_limit || 0;
     const dialogueBudget = thresholds.dialogue_limit || Math.max(0, limit - residentBudget);
-    const bufferSharedRemaining = Math.max(0, dialogueBudget - dialogue_tokens);
+    const bufferBudget = thresholds.buffer_limit || dialogueBudget;
+    const bufferRemaining = Math.max(0, bufferBudget - buffer_tokens);
     const fmt = (n) => Number(n || 0).toLocaleString("zh-CN");
 
     const getPct = (val) => Math.min(100, (val / limit) * 100);
@@ -117,7 +118,7 @@ export const ui = {
       `刷盘状态: <b>${is_flushing ? "刷盘中" : "空闲"}</b>`,
       `常驻区: <b>${fmt(resident_tokens)} token</b> / <b>${fmt(residentBudget)} token</b>`,
       `对话区: <b>${fmt(dialogue_tokens)} token</b> / <b>${fmt(dialogueBudget)} token</b>`,
-      `缓冲区: <b>${fmt(buffer_tokens)} token</b> / 共享上限 <b>${fmt(dialogueBudget)} token</b> (剩余 ${fmt(bufferSharedRemaining)} token)`,
+      `缓冲区: <b>${fmt(buffer_tokens)} token</b> / <b>${fmt(bufferBudget)} token</b> (剩余 ${fmt(bufferRemaining)} token)`,
       `总计: <b>${fmt(total_tokens)} token</b> / <b>${fmt(limit)} token</b>`
     ].join("<br>");
   },

@@ -38,6 +38,7 @@
 - `user_id`
 - `session_id`
 - `role`
+- `message_kind`
 - `content`
 - `zone`
 - `token_count`
@@ -104,10 +105,17 @@ data/user/<user_id>/
 
 ## 3. 分区语义（messages.zone）
 
-- `dialogue`：常规对话区
-- `tool`：工具事件区
-- `buffer`：刷盘期间缓冲区
-- `resident_recent`：刷盘后保留的最近对话
+当前版本将消息语义拆分为两层：
+
+1. 生命周期分区（`zone`）
+- `dialogue`：当前会话主对话区
+- `buffer`：刷盘期间新增消息缓冲区
+- `resident_recent`：刷盘后保留的近期连续对话
+
+2. 消息类型（`message_kind`）
+- `chat`：普通用户/助手对话消息
+- `tool_call`：工具调用事件
+- `tool_result`：工具结果事件
 
 ## 4. token 预算字段
 
@@ -116,7 +124,8 @@ data/user/<user_id>/
 - system prompt + memory：10%
 - summary：1%
 - recent raw：9%
-- dialogue/tool/buffer：其余预算
+- dialogue：其余 80%（其中可包含 `chat/tool_call/tool_result` 三种消息类型）
+- buffer：仅刷盘期间启用，容量与 dialogue 相同（`buffer_limit = dialogue_limit`）
 
 ## 5. 数据初始化
 
@@ -127,7 +136,3 @@ data/user/<user_id>/
 3. 初始化 `employee/1` 目录骨架与记忆模板文件
 
 创建新员工时会自动初始化对应 `employee/<employee_id>` 目录与模板文件。
-
-## 6. 兼容策略
-
-当前版本不做旧会话 ID 到员工模型的自动迁移；历史数据需手动整理后再接入。

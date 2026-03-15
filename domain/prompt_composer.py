@@ -11,11 +11,7 @@ from domain.chat.memory_files import (
     SCHEDULE_FILE,
     WORKBOOK_FILE,
 )
-from domain.prompt_templates import (
-    load_chat_system_base_prompt,
-    load_chat_system_template_prompt,
-    load_tool_calling_prompt,
-)
+from domain.prompt_templates import compose_chat_system_prompt
 from domain.tool_protocol import normalize_prompt_role
 from domain.window_policy import WindowThresholds
 
@@ -59,11 +55,13 @@ class PromptComposer:
         """执行内部辅助逻辑。"""
         return (
             f"你正在运行于 {thresholds.total_limit} token 上下文窗口。\n"
-            f"- 系统提示词与记忆文件：上限 {thresholds.system_prompt_limit} token（10%）。\n"
-            f"- 最近对话：上限 {thresholds.recent_total_limit} token（10%），"
-            f"其中摘要 {thresholds.summary_limit} token（1%），"
-            f"原始对话 {thresholds.recent_raw_limit} token（9%）。\n"
-            f"- 对话区（含工具/缓冲）：上限 {thresholds.dialogue_limit} token（约 80%）。\n"
+            f"- 固定预算 100% = 系统区 {thresholds.system_prompt_limit}（10%）"
+            f" + 最近区 {thresholds.recent_total_limit}（10%=摘要 {thresholds.summary_limit}"
+            f" + 原始 {thresholds.recent_raw_limit}）"
+            f" + 对话区 {thresholds.dialogue_limit}（80%，工具事件计入此区）。\n"
+            f"- 当非刷盘状态下总量超过 {thresholds.flush_trigger} token 会触发刷盘。\n"
+            f"- 刷盘期间启用临时缓冲区：上限 {thresholds.buffer_limit} token（等于对话区 80%）；"
+            "缓冲区超限时应拒绝新消息并提示稍后重试。\n"
             "- 请优先复用已有记忆，并在必要时调用工具更新记忆。"
         )
 
@@ -80,14 +78,6 @@ class PromptComposer:
             return "(暂无其他记忆文件)"
         sections = [f"### {file_name}\n{content}" for file_name, content in other_memories]
         return "\n\n".join(sections).strip()
-
-    @staticmethod
-    def _render_template(template: str, variables: dict[str, str]) -> str:
-        """将变量注入模板占位符。"""
-        rendered = str(template or "")
-        for key, value in variables.items():
-            rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
-        return rendered.strip()
 
     def fit_section_to_budget(
         self,
@@ -124,9 +114,6 @@ class PromptComposer:
         tool_schemas: list[dict[str, Any]] | None = None,
     ) -> str:
         """组合并生成目标内容。"""
-        template = load_chat_system_template_prompt()
-        base_system_prompt = load_chat_system_base_prompt()
-        tool_calling_prompt = load_tool_calling_prompt()
         tool_defs_text = self._render_tool_definitions_from_schema(tool_schemas or [])
 
         memory_entries: dict[str, str] = {}
@@ -151,19 +138,14 @@ class PromptComposer:
         ]
         memory_others = self._render_other_memory_sections(other_memory_entries)
 
-        system_prompt_payload = self._render_template(
-            template,
-            {
-                "WINDOW_PREAMBLE": self._system_preamble(thresholds),
-                "BASE_SYSTEM_PROMPT": base_system_prompt.strip(),
-                "TOOL_CALLING_PROMPT": tool_calling_prompt.strip(),
-                "TOOL_DEFINITIONS": tool_defs_text.strip(),
-                "MEMORY_CORE": self._normalize_memory_text(memory_entries.get(COMPRESSED_MEMORY_FILE, "")),
-                "MEMORY_PERSONA": self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
-                "MEMORY_SCHEDULE": self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
-                "MEMORY_WORKBOOK": self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),
-                "MEMORY_OTHERS": memory_others,
-            },
+        system_prompt_payload = compose_chat_system_prompt(
+            window_preamble=self._system_preamble(thresholds),
+            tool_definitions=tool_defs_text.strip(),
+            memory_core=self._normalize_memory_text(memory_entries.get(COMPRESSED_MEMORY_FILE, "")),
+            memory_persona=self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
+            memory_schedule=self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
+            memory_workbook=self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),
+            memory_others=memory_others,
         )
 
         summary_text = (session.get("workbench_summary") or "").strip() or "(当前暂无工作台摘要)"

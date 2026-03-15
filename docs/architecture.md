@@ -42,12 +42,14 @@
 1. `api/routes_chat.py` 接收请求并校验
 2. `app/chat/use_cases/chat_stream_use_case.py` 编排处理
 3. `app/chat/services/memory_context_service.py` 调用 domain 规则组装上下文
-4. `infra/chat/openai_gateway.py` 执行模型与工具循环
+4. `infra/llm/openai_gateway.py` 执行模型与工具循环
 5. 结果通过统一 SSE envelope 返回给前端
 
 ## 5. 刷盘流程（自动/手动）
 
 1. 达到阈值后标记 `is_flushing=true`
-2. 归档 `dialogue/tool` 并更新长期记忆
-3. 回填 `resident_recent`、更新摘要
-4. 结束后恢复 `is_flushing=false`
+2. 归档旧 `dialogue`（含工具类型消息）并更新长期记忆
+3. 旧 `dialogue` 摘取后回填 `resident_recent`、更新摘要
+4. 将刷盘期间 `buffer` 消息迁移为新的 `dialogue`
+5. 清空 `buffer`（通过重建消息分区实现）
+6. 结束后恢复 `is_flushing=false`

@@ -72,6 +72,12 @@ SSE 事件协议请看 `sse_protocol.md`。
 - `DELETE /user/employees/{employee_id}?user_id=alice`
 - `GET /user/employee-messages?user_id=alice&employee_id=1&limit=50`
 
+`GET /user/employee-messages` 返回的每条消息包含：
+
+- `role`（模型角色）
+- `message_kind`（`chat/tool_call/tool_result`）
+- `zone`（`dialogue/buffer/resident_recent`）
+
 `POST /user/employees` 请求体：
 
 ```json
@@ -129,7 +135,3 @@ SSE 事件协议请看 `sse_protocol.md`。
   "mode": "overwrite"
 }
 ```
-
-## 5. 兼容说明
-
-旧的 `/users/{user_id}/...` 样式路由已替换为模块前缀路由。

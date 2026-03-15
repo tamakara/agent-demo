@@ -32,12 +32,12 @@
 - `domain/prompt_composer.py`：system 提示词拼装与窗口裁剪
 - `domain/chat/memory_files.py`：记忆文件名与相对路径规则
 - `domain/window_policy.py`：token 阈值策略
-- `domain/tool_protocol.py`：工具协议清洗与还原
+- `domain/tool_protocol.py`：工具协议清洗与还原（基于 `message_kind`）
 - `domain/models.py`：跨模块领域模型
 
 ## 5. Infra 层（`infra`）
 
-- `infra/chat/*`：LLM 网关与 tokenizer 适配
-- `infra/user/*`：SQLite 仓储适配
-- `infra/storage/*`：文件仓储与目录布局适配
+- `infra/llm/*`：LLM 网关与 tokenizer 适配
+- `infra/sqlite/*`：SQLite 仓储适配
+- `infra/memory/*`：文件仓储与目录布局适配
 - `infra/tools/*`：工具执行、schema、时间服务

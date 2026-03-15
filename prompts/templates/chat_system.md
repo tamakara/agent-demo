@@ -1,10 +1,13 @@
-{{WINDOW_PREAMBLE}}
+﻿{{WINDOW_PREAMBLE}}
 
 ## 底层系统提示词
 {{BASE_SYSTEM_PROMPT}}
 
-## 工具调用提示词
+## 通用工具调用策略
 {{TOOL_CALLING_PROMPT}}
+
+## 画图工具调用策略
+{{IMAGE_TOOL_CALLING_PROMPT}}
 
 ## 可用工具清单（只读）
 {{TOOL_DEFINITIONS}}

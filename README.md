@@ -20,7 +20,7 @@ agent-demo/
 ├── domain/     # 领域规则（提示词、预算、协议、模型）
 ├── infra/      # chat/user/storage 基础设施适配器
 ├── common/     # 错误、响应封装、ID/时间工具
-├── prompts/    # system 模板与底层提示词（聊天/工具调用/刷盘）
+├── prompts/    # 提示词目录（templates + sections，按调用类型维护）
 ├── static/     # 前端页面
 └── docs/       # 分文件文档（按专题独立维护）
 ```
@@ -105,11 +105,8 @@ python run.py
 - [docs/api_reference.md](docs/api_reference.md)
 - [docs/sse_protocol.md](docs/sse_protocol.md)
 - [docs/data_model.md](docs/data_model.md)
+- [docs/session_window_and_flush.md](docs/session_window_and_flush.md)
 - [docs/frontend_guide.md](docs/frontend_guide.md)
 - [docs/multi_user.md](docs/multi_user.md)
 - [docs/core_modules.md](docs/core_modules.md)
 - [docs/testing.md](docs/testing.md)
-
-## 7. 兼容说明
-
-本版本不兼容旧版会话 API（`/sessions`、`/session-messages`），不提供旧实现兼容层。

@@ -56,15 +56,16 @@ export const logic = {
       return { type: "assistant", payload: "" };
     }
     const role = String(message.role || "assistant");
-    const zone = String(message.zone || "");
+    const rawMessageKind = String(message.message_kind || "").trim().toLowerCase();
+    const messageKind = rawMessageKind || "chat";
     const content = message.content;
     const parsedPayload = this.parseJsonObject(content);
 
-    if (zone === "tool") {
+    if (messageKind === "tool_call" || messageKind === "tool_result") {
       if (parsedPayload) {
-        return { type: "tool_result", payload: parsedPayload };
+        return { type: messageKind, payload: parsedPayload };
       }
-      return { type: role || "tool_result", payload: String(content || "") };
+      return { type: messageKind, payload: String(content || "") };
     }
 
     return { type: role, payload: content };

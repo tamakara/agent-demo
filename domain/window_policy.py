@@ -23,6 +23,7 @@ class WindowThresholds:
     recent_total_limit: int
     resident_limit: int
     dialogue_limit: int
+    buffer_limit: int
     flush_trigger: int
 
     @classmethod
@@ -35,6 +36,7 @@ class WindowThresholds:
         recent_total_limit = summary_limit + recent_raw_limit
         resident_limit = system_prompt_limit + recent_total_limit
         dialogue_limit = max(1, normalized - resident_limit)
+        buffer_limit = dialogue_limit
         return cls(
             total_limit=normalized,
             system_prompt_limit=system_prompt_limit,
@@ -43,6 +45,7 @@ class WindowThresholds:
             recent_total_limit=recent_total_limit,
             resident_limit=resident_limit,
             dialogue_limit=dialogue_limit,
+            buffer_limit=buffer_limit,
             flush_trigger=normalized,
         )
 
@@ -55,6 +58,7 @@ class WindowThresholds:
             "recent_total_limit": self.recent_total_limit,
             "resident_limit": self.resident_limit,
             "dialogue_limit": self.dialogue_limit,
+            "buffer_limit": self.buffer_limit,
             "total_limit": self.total_limit,
             "flush_trigger": self.flush_trigger,
         }

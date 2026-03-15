@@ -36,7 +36,7 @@ async def refresh_system_message_after_memory_write(
     if refresher is None:
         return
 
-    # refresher 允许同步/异步两种形式，这里统一兼容。
+    # refresher 允许同步/异步两种形式，这里统一处理。
     refreshed = refresher()
     if inspect.isawaitable(refreshed):
         refreshed = await refreshed

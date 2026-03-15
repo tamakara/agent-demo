@@ -14,6 +14,7 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpe
 
 from common.errors import NotFoundError, ValidationError
 from domain.models import LLMConfig
+from domain.prompt_templates import compose_image_generation_prompt
 from infra.llm.request_builder import normalize_openai_base_url
 from infra.memory.storage_layout import user_brand_library_dir, user_employee_workspace_dir
 
@@ -190,6 +191,7 @@ class ImageToolService:
         normalized_name_hint = self._normalize_name_hint(name_hint)
         normalized_image_paths = self._normalize_image_paths(image_paths)
         normalized_prompt = self._normalize_prompt(prompt)
+        composed_image_prompt = compose_image_generation_prompt(user_prompt=normalized_prompt)
         normalized_aspect_ratio = self._normalize_aspect_ratio(aspect_ratio)
         normalized_resolution = self._normalize_resolution(resolution)
         normalized_file_name = self._generate_workspace_file_name(normalized_name_hint)
@@ -205,7 +207,7 @@ class ImageToolService:
             try:
                 response = await client.images.generate(
                     model=IMAGE_GEN_MODEL,
-                    prompt=normalized_prompt,
+                    prompt=composed_image_prompt,
                     response_format="b64_json",
                     n=1,
                     extra_body={

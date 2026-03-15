@@ -15,6 +15,7 @@ from infra.llm.request_builder import (
     build_typed_messages,
     build_typed_tools,
     coerce_content,
+    extract_raw_tool_calls,
     extract_message,
     extract_usage,
     normalize_openai_base_url,
@@ -32,7 +33,7 @@ DEFAULT_REASONING_EFFORT = "high"
 
 
 class OpenAIGateway(LLMGatewayPort):
-    """OpenAI 兼容接口实现。"""
+    """OpenAI 接口实现。"""
 
     def __init__(self, tool_runner: BuiltinToolRunner) -> None:
         """初始化工具执行器依赖。"""
@@ -123,8 +124,11 @@ class OpenAIGateway(LLMGatewayPort):
 
                 latest_usage = extract_usage(response)
                 message = extract_message(response)
-                content = coerce_content(getattr(message, "content", None))
-                raw_tool_calls = getattr(message, "tool_calls", None) or []
+                raw_content = getattr(message, "content", None)
+                if raw_content is None and isinstance(message, dict):
+                    raw_content = message.get("content")
+                content = coerce_content(raw_content)
+                raw_tool_calls = extract_raw_tool_calls(message)
                 normalized_tool_calls = [
                     normalize_tool_call(call, fallback_id=f"tool_call_{round_index}_{idx}")
                     for idx, call in enumerate(raw_tool_calls)
