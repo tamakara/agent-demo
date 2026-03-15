@@ -28,6 +28,7 @@
 - `domain/models.py`：领域模型
 - `domain/window_policy.py`：预算计算
 - `domain/prompt_composer.py`：提示词与裁剪逻辑
+- `domain/prompt_templates.py`：根目录 `prompts/` 模板读取
 - `domain/tool_protocol.py`：工具事件协议处理
 
 ## 4. infra

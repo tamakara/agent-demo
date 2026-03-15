@@ -65,6 +65,11 @@ class OpenAIGateway(LLMGatewayPort):
         try:
             for round_index in range(max_tool_rounds):
                 # 记录请求快照，便于审计和排障。
+                system_prompt = ""
+                for message in working_messages:
+                    if str(message.get("role", "")).strip() == "system":
+                        system_prompt = str(message.get("content", "") or "")
+                        break
                 request_body = {
                     "model": llm_config.model,
                     "messages": working_messages,
@@ -86,6 +91,10 @@ class OpenAIGateway(LLMGatewayPort):
                         "method": "POST",
                         "base_url": normalized_base_url,
                         "endpoint": endpoint_url,
+                    },
+                    "prompt_record": {
+                        "system_prompt": system_prompt,
+                        "message_count": len(working_messages),
                     },
                     "request_body": request_snapshot,
                 }

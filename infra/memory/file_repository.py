@@ -18,7 +18,6 @@ from .storage_layout import (
     EMPLOYEE_ONE,
     PERSONA_FILE,
     SCHEDULE_FILE,
-    SYSTEM_PROMPT_FILE,
     WORKBOOK_FILE,
     resolve_memory_path,
     resolve_memory_relative_path,
@@ -72,7 +71,6 @@ PREFERRED_FILE_ORDER = [
     SCHEDULE_FILE,
     WORKBOOK_FILE,
     ASSET_PLACEHOLDER_FILE,
-    SYSTEM_PROMPT_FILE,
 ]
 VISIBLE_TEXT_SUFFIXES = {".md", ".txt"}
 VISIBLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp"}
@@ -333,14 +331,11 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         file_name: str,
         content: str,
         mode: str,
-        allow_system_prompt: bool = False,
     ) -> str:
         """向指定记忆文件写入内容。"""
         self._ensure_user_scaffold(user_id, employee_id)
         normalized_name = file_name.strip()
         path = resolve_memory_path(user_id=user_id, employee_id=employee_id, file_name=normalized_name)
-        if normalized_name == SYSTEM_PROMPT_FILE and not allow_system_prompt:
-            raise ValidationError(f"{SYSTEM_PROMPT_FILE} 仅允许通过人工接口更新")
         if mode not in {"append", "overwrite"}:
             raise ValidationError("mode 只能是 'append' 或 'overwrite'")
         if not isinstance(content, str):

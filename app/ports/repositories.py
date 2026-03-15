@@ -140,7 +140,6 @@ class MemoryFileRepositoryPort(Protocol):
         file_name: str,
         content: str,
         mode: str,
-        allow_system_prompt: bool = False,
     ) -> str:
         """写入指定数字员工记忆文件并返回最新内容。"""
         ...

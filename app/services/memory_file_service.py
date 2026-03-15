@@ -69,7 +69,6 @@ class MemoryFileService:
             file_name=file_name,
             content=content,
             mode=mode,
-            allow_system_prompt=True,
         )
         return await self.memory_repo.read_memory_file(
             user_id=user_id,

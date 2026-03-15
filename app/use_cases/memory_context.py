@@ -17,6 +17,7 @@ from app.ports.repositories import (
 )
 from domain.models import ChatProcessResult, LLMConfig, MemoryStatus
 from domain.prompt_composer import PromptComposer
+from domain.prompt_templates import load_flush_archive_prompt
 from domain.tool_protocol import (
     build_message_from_tool_event_row,
     is_tool_persistable_event,
@@ -25,12 +26,6 @@ from domain.tool_protocol import (
 )
 from domain.window_policy import DEFAULT_TOTAL_LIMIT, WindowThresholds
 
-
-ARCHIVE_SYSTEM_PROMPT = (
-    "你是一个记忆整理专员。请分析给定对话记录，并在必要时调用 "
-    "`write_memory_file` 工具，将新设定追加到最合适的记忆文件中。"
-    "整理完成后，请输出纯文本“工作台摘要”，用于后续常驻区快速加载。"
-)
 DEFAULT_TOKENIZER_MODEL = "kimi-k2.5"
 TOKENIZER_MODEL_OPTIONS = {DEFAULT_TOKENIZER_MODEL}
 
@@ -476,8 +471,9 @@ class MemoryContextService:
         try:
             if dialogue_text.strip():
                 # 对话非空时调用 LLM 执行归档总结，并允许工具写入记忆文件。
+                archive_prompt = load_flush_archive_prompt()
                 archive_messages = [
-                    {"role": "system", "content": f"{base_system}\n\n{ARCHIVE_SYSTEM_PROMPT}"},
+                    {"role": "system", "content": f"{base_system}\n\n{archive_prompt}"},
                     {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
                 ]
                 archive_result = await self.llm_gateway.run_with_tools(

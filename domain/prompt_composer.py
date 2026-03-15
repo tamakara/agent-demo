@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Callable
 
+from domain.prompt_templates import (
+    load_chat_system_base_prompt,
+    load_chat_system_template_prompt,
+    load_tool_calling_prompt,
+)
 from domain.tool_protocol import normalize_prompt_role
 from domain.window_policy import WindowThresholds
-from infra.memory.file_repository import ASSET_PLACEHOLDER_FILE, SYSTEM_PROMPT_FILE
+from infra.memory.storage_layout import (
+    ASSET_PLACEHOLDER_FILE,
+    COMPRESSED_MEMORY_FILE,
+    PERSONA_FILE,
+    SCHEDULE_FILE,
+    WORKBOOK_FILE,
+)
 from infra.tools.tool_registry import TOOL_SCHEMAS
 
 
@@ -22,27 +32,6 @@ class PromptComposer:
         """初始化实例依赖和内部状态。"""
         self._count_tokens = count_tokens
         self._truncate_text_to_tokens = truncate_text_to_tokens
-
-    @staticmethod
-    def _extract_markdown_section(markdown: str, section_title: str) -> str:
-        """执行内部辅助逻辑。"""
-        pattern = re.compile(
-            rf"(?ms)^##\s*{re.escape(section_title)}\s*$\n(.*?)(?=^##\s|\Z)",
-        )
-        matched = pattern.search(markdown or "")
-        if not matched:
-            return ""
-        return matched.group(1).strip()
-
-    def _split_system_prompt_sections(self, markdown: str) -> tuple[str, str]:
-        """执行内部辅助逻辑。"""
-        normalized = (markdown or "").strip()
-        if not normalized:
-            return "", ""
-
-        rules = self._extract_markdown_section(normalized, "规则")
-        tool_defs = self._extract_markdown_section(normalized, "工具定义")
-        return rules, tool_defs
 
     @staticmethod
     def _render_tool_definitions_from_schema() -> str:
@@ -79,6 +68,28 @@ class PromptComposer:
             "- 请优先复用已有记忆，并在必要时调用工具更新记忆。"
         )
 
+    @staticmethod
+    def _normalize_memory_text(raw_text: str) -> str:
+        """将记忆文本标准化为空值兜底。"""
+        text = str(raw_text or "").strip()
+        return text or "(暂无内容)"
+
+    @staticmethod
+    def _render_other_memory_sections(other_memories: list[tuple[str, str]]) -> str:
+        """渲染“其他记忆文件”区段文本。"""
+        if not other_memories:
+            return "(暂无其他记忆文件)"
+        sections = [f"### {file_name}\n{content}" for file_name, content in other_memories]
+        return "\n\n".join(sections).strip()
+
+    @staticmethod
+    def _render_template(template: str, variables: dict[str, str]) -> str:
+        """将变量注入模板占位符。"""
+        rendered = str(template or "")
+        for key, value in variables.items():
+            rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
+        return rendered.strip()
+
     def fit_section_to_budget(
         self,
         *,
@@ -113,24 +124,14 @@ class PromptComposer:
         read_memory_file: Callable[..., Any],
     ) -> str:
         """组合并生成目标内容。"""
-        try:
-            system_prompt_markdown = await read_memory_file(
-                user_id=user_id,
-                employee_id=employee_id,
-                file_name=SYSTEM_PROMPT_FILE,
-            )
-        except Exception:  # noqa: BLE001
-            system_prompt_markdown = ""
+        template = load_chat_system_template_prompt()
+        base_system_prompt = load_chat_system_base_prompt()
+        tool_calling_prompt = load_tool_calling_prompt()
+        tool_defs_text = self._render_tool_definitions_from_schema()
 
-        rules_text, tool_defs_text = self._split_system_prompt_sections(system_prompt_markdown)
-        if not rules_text:
-            rules_text = "(未配置规则，默认按用户意图回答并谨慎调用工具)"
-        if not tool_defs_text:
-            tool_defs_text = self._render_tool_definitions_from_schema()
-
-        memory_sections: list[str] = []
+        memory_entries: dict[str, str] = {}
         for file_name in list_memory_files(user_id, employee_id):
-            if file_name in {SYSTEM_PROMPT_FILE, ASSET_PLACEHOLDER_FILE}:
+            if file_name == ASSET_PLACEHOLDER_FILE:
                 continue
             try:
                 content = await read_memory_file(
@@ -140,18 +141,30 @@ class PromptComposer:
                 )
             except Exception:  # noqa: BLE001
                 continue
-            stripped = str(content).strip()
-            if not stripped:
-                continue
-            memory_sections.append(f"### {file_name}\n{stripped}")
+            normalized_content = self._normalize_memory_text(str(content))
+            memory_entries[str(file_name)] = normalized_content
 
-        memory_joined = "\n\n".join(memory_sections) if memory_sections else "(暂无普通记忆文件)"
-        system_prompt_payload = (
-            f"{self._system_preamble(thresholds)}\n\n"
-            f"### 规则\n{rules_text.strip()}\n\n"
-            f"### 工具定义\n{tool_defs_text.strip()}\n\n"
-            f"### 记忆文件\n{memory_joined}"
-        ).strip()
+        other_memory_entries = [
+            (file_name, content)
+            for file_name, content in sorted(memory_entries.items(), key=lambda item: item[0].lower())
+            if file_name not in {COMPRESSED_MEMORY_FILE, PERSONA_FILE, SCHEDULE_FILE, WORKBOOK_FILE}
+        ]
+        memory_others = self._render_other_memory_sections(other_memory_entries)
+
+        system_prompt_payload = self._render_template(
+            template,
+            {
+                "WINDOW_PREAMBLE": self._system_preamble(thresholds),
+                "BASE_SYSTEM_PROMPT": base_system_prompt.strip(),
+                "TOOL_CALLING_PROMPT": tool_calling_prompt.strip(),
+                "TOOL_DEFINITIONS": tool_defs_text.strip(),
+                "MEMORY_CORE": self._normalize_memory_text(memory_entries.get(COMPRESSED_MEMORY_FILE, "")),
+                "MEMORY_PERSONA": self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
+                "MEMORY_SCHEDULE": self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
+                "MEMORY_WORKBOOK": self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),
+                "MEMORY_OTHERS": memory_others,
+            },
+        )
 
         summary_text = (session.get("workbench_summary") or "").strip() or "(当前暂无工作台摘要)"
 
@@ -237,4 +250,3 @@ class PromptComposer:
             previous_role = "assistant" if normalized_role == "tool" else normalized_role
             break
         return previous_role
-

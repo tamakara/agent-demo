@@ -19,6 +19,7 @@ agent-demo/
 ├── domain/     # 领域规则（预算、协议、模型）
 ├── infra/      # SQLite/文件系统/LLM/工具实现
 ├── common/     # 错误、响应封装、ID/时间工具
+├── prompts/    # system 模板与底层提示词（聊天/工具调用/刷盘）
 ├── static/     # 前端页面
 └── docs/       # 分文件文档（按专题独立维护）
 ```

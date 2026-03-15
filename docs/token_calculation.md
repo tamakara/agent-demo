@@ -115,7 +115,8 @@ flowchart TD
 
 来源：
 
-- 系统提示词（规则 + 工具定义）
+- system 模板与底层提示词（`prompts/chat_system_template.md` + `prompts/chat_system_base.md` + `prompts/tool_calling.md`）
+- 动态工具清单（由 `TOOL_SCHEMAS` 渲染）
 - 记忆文件内容
 - 工作台摘要（单独 section）
 
@@ -189,7 +190,7 @@ graph LR
 
 ### 5.2 刷盘核心步骤
 
-1. 读取 `dialogue + tool` 作为归档输入，调用 LLM 生成总结并允许工具写记忆
+1. 读取 `dialogue + tool` 作为归档输入，拼接 `prompts/flush_archive.md` 后调用 LLM 生成总结并允许工具写记忆
 2. 回收最近对话：从 `dialogue + buffer` 中按 `recent_raw_limit` 回收 `user/assistant`
 3. 清空当前会话全部消息
 4. 将回收结果重建为 `zone=resident_recent`，并重新计 token
