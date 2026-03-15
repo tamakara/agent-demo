@@ -180,3 +180,11 @@ class ClockPort(Protocol):
     async def get_current_time(self) -> str:
         """返回当前时间信息。"""
         ...
+
+
+class ToolSchemaProviderPort(Protocol):
+    """工具 Schema 提供端口协议。"""
+
+    def list_tool_schemas(self) -> list[dict[str, Any]]:
+        """返回可用于提示词渲染的工具 Schema 列表。"""
+        ...

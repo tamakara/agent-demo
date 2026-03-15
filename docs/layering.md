@@ -33,16 +33,18 @@ common: 可被所有层复用
 - `LLMGatewayPort`
 - `TokenCounterPort`
 - `ClockPort`
+- `ToolSchemaProviderPort`
 
 这些接口定义“应用层所需能力”，不暴露具体实现细节。
 
 ## 3. 适配器实现（infra）
 
-- `infra/sqlite/repository.py`：实现 session/message/settings 仓储
-- `infra/memory/file_repository.py`：实现记忆文件仓储
-- `infra/llm/openai_gateway.py`：实现 LLM 网关
-- `infra/llm/kimi_tokenizer_counter.py`：实现 Kimi K2.5 token 计数器
+- `infra/user/sqlite_repository.py`：实现 session/message/settings 仓储
+- `infra/storage/file_repository.py`：实现记忆文件仓储
+- `infra/chat/openai_gateway.py`：实现 LLM 网关
+- `infra/chat/kimi_tokenizer_counter.py`：实现 Kimi K2.5 token 计数器
 - `infra/tools/clock.py`：实现时钟端口
+- `infra/tools/schema_provider.py`：实现工具 schema 提供器
 
 ## 4. 允许的替换方式
 

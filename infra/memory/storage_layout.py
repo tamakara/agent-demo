@@ -7,6 +7,14 @@ from pathlib import Path
 
 from common.ids import normalize_employee_id
 from common.errors import ValidationError
+from domain.chat.memory_files import (
+    ASSET_PLACEHOLDER_FILE,
+    COMPRESSED_MEMORY_FILE,
+    MEMORY_FILE_LOCATIONS_UNDER_EMPLOYEE,
+    PERSONA_FILE,
+    SCHEDULE_FILE,
+    WORKBOOK_FILE,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -20,21 +28,6 @@ SKILLS_SUBDIR = "skills"
 BRAND_LIBRARY_SUBDIR = "brand_library"
 SKILL_LIBRARY_SUBDIR = "skill_library"
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-
-ASSET_PLACEHOLDER_FILE = "file.md"
-PERSONA_FILE = "soul.md"
-SCHEDULE_FILE = "schedule.md"
-WORKBOOK_FILE = "workbook.md"
-COMPRESSED_MEMORY_FILE = "memory.md"
-
-# 已知文件名固定映射到 employee/{id} 指定位置；未知 .md 默认落到 notebook/。
-MEMORY_FILE_LOCATIONS_UNDER_EMPLOYEE: dict[str, Path] = {
-    COMPRESSED_MEMORY_FILE: Path(COMPRESSED_MEMORY_FILE),
-    ASSET_PLACEHOLDER_FILE: Path(NOTEBOOK_SUBDIR) / ASSET_PLACEHOLDER_FILE,
-    SCHEDULE_FILE: Path(NOTEBOOK_SUBDIR) / SCHEDULE_FILE,
-    PERSONA_FILE: Path(NOTEBOOK_SUBDIR) / PERSONA_FILE,
-    WORKBOOK_FILE: Path(NOTEBOOK_SUBDIR) / WORKBOOK_FILE,
-}
 
 
 def validate_user_id(user_id: str) -> str:

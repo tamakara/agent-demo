@@ -39,10 +39,10 @@
 
 ## 4. 主流程（聊天）
 
-1. `api/routes.py` 接收请求并校验
-2. `app/use_cases/chat_stream_use_case.py` 编排处理
-3. `app/use_cases/memory_context.py` 调用 domain 规则组装上下文
-4. `infra/llm/openai_gateway.py` 执行模型与工具循环
+1. `api/routes_chat.py` 接收请求并校验
+2. `app/chat/use_cases/chat_stream_use_case.py` 编排处理
+3. `app/chat/services/memory_context_service.py` 调用 domain 规则组装上下文
+4. `infra/chat/openai_gateway.py` 执行模型与工具循环
 5. 结果通过统一 SSE envelope 返回给前端
 
 ## 5. 刷盘流程（自动/手动）

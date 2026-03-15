@@ -96,7 +96,7 @@ sequenceDiagram
 
 - resident system 拼装：`domain/prompt_composer.py`
 - 提示词模板读取：`domain/prompt_templates.py`
-- 聊天主流程：`app/use_cases/memory_context.py`
-- 工具循环：`infra/llm/openai_gateway.py`、`infra/llm/tool_loop.py`
+- 聊天主流程：`app/chat/services/memory_context_service.py`
+- 工具循环：`infra/chat/openai_gateway.py`、`infra/llm/tool_loop.py`
 - 工具 schema：`infra/tools/tool_registry.py`
 - 记忆文件仓储：`infra/memory/file_repository.py`

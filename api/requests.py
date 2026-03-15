@@ -144,3 +144,4 @@ class SettingsUpdateRequest(BaseModel):
         if text not in TOKENIZER_MODEL_OPTIONS:
             raise ValueError(f"tokenizer_model 仅支持: {', '.join(TOKENIZER_MODEL_OPTIONS)}")
         return text
+

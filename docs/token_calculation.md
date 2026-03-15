@@ -222,7 +222,7 @@ sequenceDiagram
 
 ## 6. `usage` 字段的真实含义与边界
 
-`infra/llm/openai_gateway.py` 在每一轮模型请求后执行：
+`infra/chat/openai_gateway.py` 在每一轮模型请求后执行：
 
 - `latest_usage = extract_usage(response)`
 
@@ -275,7 +275,7 @@ LIMIT 50;
 - 阈值策略：`domain/window_policy.py`
 - token 计数器：`infra/llm/kimi_tokenizer_counter.py`
 - prompt 预算裁剪：`domain/prompt_composer.py`
-- 聊天主流程：`app/use_cases/memory_context.py`
+- 聊天主流程：`app/chat/services/memory_context_service.py`
 - `usage` 提取：`infra/llm/request_builder.py`
-- 模型调用与工具循环：`infra/llm/openai_gateway.py`
+- 模型调用与工具循环：`infra/chat/openai_gateway.py`
 - token 聚合 SQL：`infra/sqlite/repository.py`

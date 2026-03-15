@@ -2,57 +2,42 @@
 
 ## 本文范围
 
-本文仅回答“模块做什么”，不描述 API 字段、不描述数据库字段。
+本文仅回答“模块做什么”，不描述 API 字段和数据库字段。
 
-## 1. api
+## 1. 三大业务模块
 
-- `main.py`：创建 FastAPI 应用、生命周期与全局异常处理
-- `api/routes.py`：路由入口与协议转换
-- `api/sse.py`：SSE envelope 构建
-- `api/requests.py`：请求模型与参数校验
-- `api/dependencies.py`：依赖装配（容器）
+- `chat`：对话、LLM 调用、提示词、token 预算、记忆状态、刷盘
+- `user`：用户配置、员工生命周期管理、员工历史消息
+- `storage`：用户文件目录树、文件读写删、图片预览、素材上传
 
-## 2. app
+## 2. API 层（`api`）
 
-- `app/ports/repositories.py`：端口定义
-- `app/services/employee_service.py`：数字员工相关业务
-- `app/services/settings_service.py`：配置相关业务
-- `app/services/memory_file_service.py`：记忆文件业务
-- `app/use_cases/chat_stream_use_case.py`：聊天用例
-- `app/use_cases/flush_use_case.py`：刷盘用例
-- `app/use_cases/memory_context.py`：上下文与刷盘核心编排
-- `app/use_cases/memory_status_use_case.py`：状态查询用例
+- `api/routes.py`：装配三模块路由
+- `api/routes_user.py`：`/user/settings|employees...`
+- `api/routes_chat.py`：`/chat/stream` 与 `/chat/memory/*`
+- `api/routes_storage.py`：`/storage/*` 文件接口
+- `api/routes_shared.py`：跨路由共享校验与响应辅助
 
-## 3. domain
+## 3. App 层（`app`）
 
-- `domain/models.py`：领域模型
-- `domain/window_policy.py`：预算计算
-- `domain/prompt_composer.py`：提示词与裁剪逻辑
-- `domain/prompt_templates.py`：根目录 `prompts/` 模板读取
-- `domain/tool_protocol.py`：工具事件协议处理
+- `app/chat/services/memory_context_service.py`：聊天记忆核心服务
+- `app/chat/services/session_lock_registry.py`：会话并发锁管理
+- `app/chat/services/window_config_service.py`：窗口阈值与 tokenizer 读取
+- `app/chat/use_cases/*`：chat 用例入口
+- `app/user/services/*`：用户设置与员工管理服务
+- `app/storage/services/*`：文件能力服务
 
-## 4. infra
+## 4. Domain 层（`domain`）
 
-- `infra/sqlite/repository.py`：SQLite 仓储适配器
-- `infra/memory/storage_layout.py`：用户目录与路径安全
-- `infra/memory/file_repository.py`：记忆文件仓储适配器
-- `infra/llm/request_builder.py`：LLM 请求构建
-- `infra/llm/tool_loop.py`：工具循环执行
-- `infra/llm/openai_gateway.py`：OpenAI 兼容网关
-- `infra/llm/kimi_tokenizer_counter.py`：Kimi K2.5 tokenizer 计数适配器
-- `infra/tools/tool_registry.py`：工具 schema 与参数解析
-- `infra/tools/builtin_tools.py`：内置工具执行器
-- `infra/tools/clock.py`：系统时间适配器
+- `domain/prompt_composer.py`：system 提示词拼装与窗口裁剪
+- `domain/chat/memory_files.py`：记忆文件名与相对路径规则
+- `domain/window_policy.py`：token 阈值策略
+- `domain/tool_protocol.py`：工具协议清洗与还原
+- `domain/models.py`：跨模块领域模型
 
-## 5. common
+## 5. Infra 层（`infra`）
 
-- `common/errors.py`：统一错误类型
-- `common/response.py`：统一响应 envelope
-- `common/ids.py`：user_id / employee_id / session_id 映射规则
-- `common/time_utils.py`：时间工具
-
-## 6. 扩展入口
-
-1. 新模型网关：实现 `LLMGatewayPort`
-2. 新存储后端：实现仓储端口并在 `api/dependencies.py` 切换装配
-3. 新工具：在 `infra/tools` 注册 schema + 执行逻辑
+- `infra/chat/*`：LLM 网关与 tokenizer 适配
+- `infra/user/*`：SQLite 仓储适配
+- `infra/storage/*`：文件仓储与目录布局适配
+- `infra/tools/*`：工具执行、schema、时间服务

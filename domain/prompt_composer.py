@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from domain.chat.memory_files import (
+    ASSET_PLACEHOLDER_FILE,
+    COMPRESSED_MEMORY_FILE,
+    PERSONA_FILE,
+    SCHEDULE_FILE,
+    WORKBOOK_FILE,
+)
 from domain.prompt_templates import (
     load_chat_system_base_prompt,
     load_chat_system_template_prompt,
@@ -11,14 +18,6 @@ from domain.prompt_templates import (
 )
 from domain.tool_protocol import normalize_prompt_role
 from domain.window_policy import WindowThresholds
-from infra.memory.storage_layout import (
-    ASSET_PLACEHOLDER_FILE,
-    COMPRESSED_MEMORY_FILE,
-    PERSONA_FILE,
-    SCHEDULE_FILE,
-    WORKBOOK_FILE,
-)
-from infra.tools.tool_registry import TOOL_SCHEMAS
 
 
 class PromptComposer:
@@ -34,10 +33,10 @@ class PromptComposer:
         self._truncate_text_to_tokens = truncate_text_to_tokens
 
     @staticmethod
-    def _render_tool_definitions_from_schema() -> str:
+    def _render_tool_definitions_from_schema(tool_schemas: list[dict[str, Any]]) -> str:
         """执行内部辅助逻辑。"""
         lines: list[str] = []
-        for schema in TOOL_SCHEMAS:
+        for schema in tool_schemas:
             function_spec = schema.get("function", {})
             if not isinstance(function_spec, dict):
                 continue
@@ -122,12 +121,13 @@ class PromptComposer:
         thresholds: WindowThresholds,
         list_memory_files: Callable[[str, str], list[str]],
         read_memory_file: Callable[..., Any],
+        tool_schemas: list[dict[str, Any]] | None = None,
     ) -> str:
         """组合并生成目标内容。"""
         template = load_chat_system_template_prompt()
         base_system_prompt = load_chat_system_base_prompt()
         tool_calling_prompt = load_tool_calling_prompt()
-        tool_defs_text = self._render_tool_definitions_from_schema()
+        tool_defs_text = self._render_tool_definitions_from_schema(tool_schemas or [])
 
         memory_entries: dict[str, str] = {}
         for file_name in list_memory_files(user_id, employee_id):

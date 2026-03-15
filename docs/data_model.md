@@ -95,7 +95,7 @@ data/user/<user_id>/
 - `employee/<employee_id>/workspace/`：员工工作空间目录。
 - `employee/<employee_id>/skills/`：员工技能文件目录。
 
-接口可见记忆文件（`GET /memory/files`）按用户维度聚合，返回所有员工目录下的记忆文件：
+接口可见记忆文件（`GET /storage/tree?user_id=...`）按用户维度聚合，返回所有员工目录下的记忆文件：
 
 - `employee/1/memory.md`
 - `employee/1/notebook/soul.md`

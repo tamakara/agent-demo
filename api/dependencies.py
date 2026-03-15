@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.services.employee_service import EmployeeService
-from app.services.memory_file_service import MemoryFileService
-from app.services.settings_service import SettingsService
-from app.use_cases.chat_stream_use_case import ChatStreamUseCase
-from app.use_cases.flush_use_case import FlushUseCase
-from app.use_cases.memory_context import MemoryContextService
-from app.use_cases.memory_status_use_case import MemoryStatusUseCase
-from infra.llm.kimi_tokenizer_counter import KimiTokenizerCounter
-from infra.llm.openai_gateway import OpenAIGateway
-from infra.memory.file_repository import FileMemoryRepository
-from infra.sqlite.repository import SQLiteRepository
+from app.chat.services.memory_context_service import MemoryContextService
+from app.chat.use_cases.chat_stream_use_case import ChatStreamUseCase
+from app.chat.use_cases.flush_use_case import FlushUseCase
+from app.chat.use_cases.memory_status_use_case import MemoryStatusUseCase
+from app.storage.services.memory_file_service import MemoryFileService
+from app.user.services.employee_service import EmployeeService
+from app.user.services.settings_service import SettingsService
+from infra.chat.kimi_tokenizer_counter import KimiTokenizerCounter
+from infra.chat.openai_gateway import OpenAIGateway
+from infra.storage.file_repository import FileMemoryRepository
 from infra.tools.builtin_tools import BuiltinToolRunner
 from infra.tools.clock import SystemClock
+from infra.tools.schema_provider import ToolSchemaProvider
+from infra.user.sqlite_repository import SQLiteRepository
 
 
 @dataclass(slots=True)
@@ -42,6 +43,7 @@ async def build_container() -> AppContainer:
     memory_file_repo = FileMemoryRepository()
     clock = SystemClock()
     tool_runner = BuiltinToolRunner(memory_repo=memory_file_repo, clock=clock)
+    tool_schema_provider = ToolSchemaProvider()
     llm_gateway = OpenAIGateway(tool_runner=tool_runner)
     token_counter = KimiTokenizerCounter()
 
@@ -53,6 +55,7 @@ async def build_container() -> AppContainer:
         memory_repo=memory_file_repo,
         llm_gateway=llm_gateway,
         token_counter=token_counter,
+        tool_schema_provider=tool_schema_provider,
     )
 
     # 组装应用层用例与外部服务门面。

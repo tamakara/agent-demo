@@ -3,8 +3,9 @@
 一个基于 FastAPI 的多用户记忆智能体演示项目，当前版本重点是：
 
 1. 根目录分层结构（`api / app / domain / infra / common`）
-2. 端口-适配器设计（Ports & Adapters）
-3. 统一 API JSON Envelope + SSE Envelope
+2. 三模块组织（`chat / user / storage`）
+3. 端口-适配器设计（Ports & Adapters）
+4. 统一 API JSON Envelope + SSE Envelope
 4. 数字员工级 token 预算与自动/手动刷盘
 
 ## 1. 目录结构
@@ -14,10 +15,10 @@ agent-demo/
 ├── main.py
 ├── run.py
 ├── requirements.txt
-├── api/        # HTTP 路由、请求 DTO、SSE 输出
-├── app/        # 用例编排、业务服务、端口接口
-├── domain/     # 领域规则（预算、协议、模型）
-├── infra/      # SQLite/文件系统/LLM/工具实现
+├── api/        # 路由装配 + chat/user/storage 子路由
+├── app/        # chat/user/storage 应用服务与用例
+├── domain/     # 领域规则（提示词、预算、协议、模型）
+├── infra/      # chat/user/storage 基础设施适配器
 ├── common/     # 错误、响应封装、ID/时间工具
 ├── prompts/    # system 模板与底层提示词（聊天/工具调用/刷盘）
 ├── static/     # 前端页面
@@ -56,10 +57,11 @@ python run.py
 ## 4. API 与协议约定
 
 - 无路径前缀：不使用 `/api`、`/v1`
-- `user_id` 传递：
-1. 查询接口走 query
-2. 写接口优先走 body
-3. `PUT /memory/files/{file_name}` 与 `POST /memory/reset` 保持 query
+- 资源路径采用三模块组织：
+1. `user`：`/user/...`
+2. `chat`：`/chat/...`
+3. `storage`：`/storage/...`
+- `user_id` / `employee_id` 通过 query 或 body 提供，不再固定在路径中
 
 统一 JSON 响应：
 
@@ -87,11 +89,11 @@ python run.py
 
 ## 5. 关键接口
 
-- `GET /employees`：列出用户数字员工
-- `POST /employees`：创建新数字员工（自动分配下一个编号）
-- `GET /employee-messages`：读取指定员工历史消息
-- `POST /chat/stream`：员工上下文流式对话
-- `GET /memory/files`：返回员工数据目录、目录树与记忆文件内容
+- `GET /user/employees?user_id=...`：列出用户数字员工
+- `POST /user/employees`：创建新数字员工（body 携带 `user_id`）
+- `GET /user/employee-messages?user_id=...&employee_id=...`：读取指定员工历史消息
+- `POST /chat/stream`：流式对话（body 携带 `user_id`、`employee_id`、`message`）
+- `GET /storage/tree?user_id=...`：返回用户数据目录树与可编辑记忆文件
 
 ## 6. 文档入口
 

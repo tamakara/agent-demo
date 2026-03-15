@@ -1,92 +1,78 @@
-﻿# 前端接入指南
+# 前端接入指南
 
 ## 本文范围
 
 本文只覆盖前端实现关注点：
 
+- 模块拆分
 - 请求封装
 - SSE 解析
-- 状态管理
-- 错误处理
+- 状态管理与错误处理
 
 接口字段详见 `api_reference.md`，SSE 字段详见 `sse_protocol.md`。
 
-## 1. 请求封装建议
+## 1. 代码结构（已模块化）
 
-建议封装：
+- `static/app.js`：入口，仅负责初始化
+- `static/js/state.js`：全局状态与路径工具
+- `static/js/dom.js`：DOM 引用缓存
+- `static/js/api_client.js`：统一请求封装
+- `static/js/ui.js`：UI 渲染
+- `static/js/logic.js`：业务流程编排
 
-- `apiGet(path, query)`
-- `apiPost(path, body)`
-- `apiPut(path, body)`
-- `parseEnvelope(response)`
+## 2. 路由与参数规则
 
-统一解包逻辑：
+### 2.1 user 模块
 
-1. 先解析 JSON
-2. 优先处理 `error`
-3. 成功返回 `data`
+- `/user/settings`
+- `/user/employees`
+- `/user/employee-messages`
 
-## 2. user_id / employee_id 传递规则
+### 2.2 chat 模块
 
-- 查询接口：query `user_id`
-- 员工相关查询同时传 `employee_id`
-- 员工重置接口 `/employees/{employee_id}/reset` 使用 `POST + query user_id`
-- 员工删除接口 `/employees/{employee_id}` 使用 `DELETE + query user_id`
-- 用户级目录接口 `/memory/files` 与 `/memory/file-preview` 不依赖 `employee_id`
-- 文本编辑接口 `/memory/file-content` 使用 `query user_id + path`，支持 `.md/.txt`
-- 文件删除接口 `/memory/file` 使用 `DELETE + query user_id + path`
-  - 仅允许删除 `brand_library` / `skill_library` 下文件
-- 素材上传接口 `/memory/brand-library/upload` 使用 `POST + multipart/form-data + query user_id`
-  - `files` 字段支持单文件或多文件
-  - 同名文件默认自动重命名为 `name(1).ext`、`name(2).ext` ...
-- 写接口：body `user_id`
-- 特例：`PUT /memory/files/{file_name}` 与 `POST /memory/reset` 继续 query 传 `user_id`、`employee_id`
+- `/chat/stream`
+- `/chat/memory/*`
+
+### 2.3 storage 模块
+
+- `/storage/tree`
+- `/storage/file-content`
+- `/storage/file-preview`
+- `/storage/file`
+- `/storage/brand-library/upload`
+
+参数约束：
+
+1. `user_id`、`employee_id` 通过 query 或 body 传递
+2. 文件路径统一走 query `path`
+3. 上传接口使用 `multipart/form-data` 并通过 query 传 `user_id`
 
 ## 3. SSE 解析建议
 
-1. 按 `\n\n` 切分事件块
-2. 提取 `data:` 行并 JSON 解析
-3. 读取 `envelope.type` 进行分发
+1. 按 `data:` 行提取 JSON envelope
+2. 读取 `type` 分发渲染：
+   - `assistant_final`
+   - `tool_call`
+   - `tool_result`
+   - `memory_status`
+   - `error`
+   - `done`
+3. `done` 到达后恢复 UI 交互状态
 
-建议分发器：
-
-- `meta` -> 系统信息
-- `tool_call` / `tool_result` -> 工具日志
-- `assistant_final` -> 助手消息
-- `memory_status` -> token 面板更新
-- `error` -> 错误面板
-- `done` -> 收尾状态复位
-
-## 4. 页面状态建议
-
-最小状态：
+## 4. 关键状态
 
 - `userId`
 - `employees`
 - `activeEmployeeId`
-- `activeSessionId`
 - `files`
 - `dataTree`
-- `activeFile`
-- `isChatRunning`
+- `selectedFile`
+- `isChatting`
 
-## 5. 交互建议
+## 5. 联调检查清单
 
-1. 页面加载先要求输入 `user_id`
-2. 用户切换时重置员工、文件和聊天视图
-3. 首次进入用户上下文自动保障 1 号员工可用
-4. 聊天发送时禁用重复提交
-5. 流结束（`done`）后统一刷新员工列表与 memory 状态
+1. 前端不再请求 `/users/{user_id}/...` 路径
+2. 非流式接口统一走 envelope 解包
+3. 用户切换与员工切换后视图正确隔离
+4. 文件编辑、上传、删除与图片预览链路可用
 
-## 6. 错误展示建议
-
-- 网络错误：展示摘要 + 技术详情
-- envelope 错误：优先展示 `error.message`
-- SSE `error`：写入聊天区并结束当前流
-
-## 7. 联调检查清单
-
-1. 前端不再请求 `/sessions` 与 `/session-messages`
-2. 所有非流式接口都经过 envelope 解包
-3. SSE 处理不依赖 `eventName`，仅依赖 `type`
-4. 用户切换与员工切换后数据视图正确隔离
