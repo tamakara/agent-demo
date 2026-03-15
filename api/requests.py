@@ -7,8 +7,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
-TOKENIZER_MODEL_OPTIONS = ("gemini-3-flash", "gemini-3.1-pro")
-DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
+TOKENIZER_MODEL_OPTIONS = ("kimi-k2.5",)
+DEFAULT_TOKENIZER_MODEL = "kimi-k2.5"
 
 
 def ensure_string(value: Any) -> str:
@@ -88,7 +88,7 @@ class SettingsUpdateRequest(BaseModel):
     api_key: str = Field(default="")
     base_url: str | None = Field(default="http://model-gateway.test.api.dotai.internal/v1")
     total_token_limit: int = Field(default=200000, ge=20000, le=2000000)
-    tokenizer_model: Literal["gemini-3-flash", "gemini-3.1-pro"] = Field(default=DEFAULT_TOKENIZER_MODEL)
+    tokenizer_model: Literal["kimi-k2.5"] = Field(default=DEFAULT_TOKENIZER_MODEL)
 
     @field_validator("user_id", mode="before")
     @classmethod

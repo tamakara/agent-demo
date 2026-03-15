@@ -2,8 +2,8 @@
 const CONFIG = {
   storageKey: "agent_demo_user_id"
 };
-const TOKENIZER_OPTIONS = ["gemini-3-flash", "gemini-3.1-pro"];
-const DEFAULT_TOKENIZER_MODEL = "gemini-3-flash";
+const TOKENIZER_OPTIONS = ["kimi-k2.5"];
+const DEFAULT_TOKENIZER_MODEL = "kimi-k2.5";
 const IMAGE_FILE_EXT_PATTERN = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
 const EDITABLE_TEXT_EXT_PATTERN = /\.(md|txt)$/i;
 const DELETABLE_ROOT_NAMES = new Set(["brand_library", "skill_library"]);

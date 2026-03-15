@@ -31,8 +31,8 @@ ARCHIVE_SYSTEM_PROMPT = (
     "`write_memory_file` 工具，将新设定追加到最合适的记忆文件中。"
     "整理完成后，请输出纯文本“工作台摘要”，用于后续常驻区快速加载。"
 )
-DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
-TOKENIZER_MODEL_OPTIONS = {"gemini-3-flash", "gemini-3.1-pro"}
+DEFAULT_TOKENIZER_MODEL = "kimi-k2.5"
+TOKENIZER_MODEL_OPTIONS = {DEFAULT_TOKENIZER_MODEL}
 
 
 class MemoryContextService:

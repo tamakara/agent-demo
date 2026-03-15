@@ -24,7 +24,7 @@
 
 | 口径 | 来源 | 用途 | 是否参与阈值判断 |
 |---|---|---|---|
-| 本地记账 token | `infra/llm/gemini_tokenizer_counter.py` | 上下文裁剪、状态面板、刷盘触发 | 是 |
+| 本地记账 token | `infra/llm/kimi_tokenizer_counter.py` | 上下文裁剪、状态面板、刷盘触发 | 是 |
 | 模型 `usage` | `response.usage` | 透传到 `assistant_final` 事件 | 否 |
 
 关键点：
@@ -103,13 +103,13 @@ flowchart TD
 
 ### 4.1 计数器实现
 
-`GeminiTokenizerCounter.count_tokens(text, model)`：
+`KimiTokenizerCounter.count_tokens(text, model)`：
 
-- 基于用户设置的 `tokenizer_model` 调用 `genai.Client().models.count_tokens(...)`
-- 从响应中读取 `total_tokens`
-- SDK 不可用时降级为本地估算，保证主流程可用
+- 基于本地 `infra/llm/tokenizer_assets/tiktoken.model` 构建 Kimi K2.5 编码器
+- 使用官方 `tokenization_kimi.py` 的 `pat_str` 与 `tokenizer_config.json` 特殊 token 映射
+- 通过本地 `tiktoken` 编码直接得到 token 数，不依赖远端 SDK
 
-`truncate_text_to_tokens(text, limit, model)` 通过二分查找控制预算。
+`truncate_text_to_tokens(text, limit, model)` 通过“编码后按上限切片再解码”控制预算。
 
 ### 4.2 `resident_static_tokens`（常驻静态）
 
@@ -272,7 +272,7 @@ LIMIT 50;
 ## 8. 关键代码索引
 
 - 阈值策略：`domain/window_policy.py`
-- token 计数器：`infra/llm/gemini_tokenizer_counter.py`
+- token 计数器：`infra/llm/kimi_tokenizer_counter.py`
 - prompt 预算裁剪：`domain/prompt_composer.py`
 - 聊天主流程：`app/use_cases/memory_context.py`
 - `usage` 提取：`infra/llm/request_builder.py`

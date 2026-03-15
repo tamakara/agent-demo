@@ -41,7 +41,7 @@ common: 可被所有层复用
 - `infra/sqlite/repository.py`：实现 session/message/settings 仓储
 - `infra/memory/file_repository.py`：实现记忆文件仓储
 - `infra/llm/openai_gateway.py`：实现 LLM 网关
-- `infra/llm/gemini_tokenizer_counter.py`：实现 Gemini token 计数器
+- `infra/llm/kimi_tokenizer_counter.py`：实现 Kimi K2.5 token 计数器
 - `infra/tools/clock.py`：实现时钟端口
 
 ## 4. 允许的替换方式

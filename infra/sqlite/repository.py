@@ -17,7 +17,7 @@ DEFAULT_LLM_MODEL = "agent-advoo"
 DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
 DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 DEFAULT_LLM_MAX_TOOL_ROUNDS = 64
-DEFAULT_TOKENIZER_MODEL = "gemini-3-flash"
+DEFAULT_TOKENIZER_MODEL = "kimi-k2.5"
 GLOBAL_LLM_SELECT_SQL = """
 SELECT
     llm_model,
@@ -94,7 +94,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     llm_base_url TEXT NOT NULL,
                     llm_max_tool_rounds INTEGER NOT NULL,
                     context_total_token_limit INTEGER NOT NULL,
-                    tokenizer_model TEXT NOT NULL DEFAULT 'gemini-3-flash',
+                    tokenizer_model TEXT NOT NULL DEFAULT 'kimi-k2.5',
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 """
@@ -144,16 +144,18 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             conn.execute(
                 """
                 ALTER TABLE app_settings
-                ADD COLUMN tokenizer_model TEXT NOT NULL DEFAULT 'gemini-3-flash';
+                ADD COLUMN tokenizer_model TEXT NOT NULL DEFAULT 'kimi-k2.5';
                 """
             )
         conn.execute(
             """
             UPDATE app_settings
             SET tokenizer_model = ?
-            WHERE tokenizer_model IS NULL OR TRIM(tokenizer_model) = '';
+            WHERE tokenizer_model IS NULL
+                OR TRIM(tokenizer_model) = ''
+                OR LOWER(TRIM(tokenizer_model)) <> ?;
             """,
-            (DEFAULT_TOKENIZER_MODEL,),
+            (DEFAULT_TOKENIZER_MODEL, DEFAULT_TOKENIZER_MODEL),
         )
 
     @staticmethod

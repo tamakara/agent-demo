@@ -55,7 +55,7 @@
 - `llm_base_url`
 - `llm_max_tool_rounds`（固定为 `64`，不再在 UI 配置）
 - `context_total_token_limit`
-- `tokenizer_model`（默认 `gemini-3-flash`）
+- `tokenizer_model`（默认 `kimi-k2.5`）
 - `updated_at`
 
 ## 2. 文件系统

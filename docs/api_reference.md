@@ -185,7 +185,7 @@ Data:
 - `base_url`
 - `max_tool_rounds`（固定返回 `64`）
 - `total_token_limit`
-- `tokenizer_model`（`gemini-3-flash` / `gemini-3.1-pro`）
+- `tokenizer_model`（仅支持 `kimi-k2.5`）
 
 #### `PUT /settings`
 
@@ -198,7 +198,7 @@ Body:
   "api_key": "sk-...",
   "base_url": "http://model-gateway.test.api.dotai.internal/v1",
   "total_token_limit": 200000,
-  "tokenizer_model": "gemini-3-flash"
+  "tokenizer_model": "kimi-k2.5"
 }
 ```
 
