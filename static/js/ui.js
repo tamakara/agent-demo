@@ -24,6 +24,13 @@ export const ui = {
     return `/storage/file-preview?${query.toString()}`;
   },
 
+  notify(message, level = "info") {
+    const text = String(message || "").trim();
+    if (!text) return;
+    const prefix = level === "error" ? "错误" : level === "success" ? "成功" : "提示";
+    window.alert(`${prefix}：${text}`);
+  },
+
   appendChat(type, content) {
     const tpl = $("chatItemTemplate").content.cloneNode(true);
     const item = tpl.querySelector(".chat-item");

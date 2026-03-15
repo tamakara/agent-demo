@@ -91,7 +91,7 @@ export const logic = {
       const data = await api.get("/storage/file-content", { ...userQuery(), path: targetPath });
       state.textFileCache[targetPath] = String(data?.content ?? "");
     } catch (err) {
-      ui.appendChat("error", `读取文件失败: ${err.message}`);
+      ui.notify(`读取文件失败: ${err.message}`, "error");
     } finally {
       if (state.loadingTextFilePath === targetPath) state.loadingTextFilePath = "";
       ui.updateEditor();
@@ -123,7 +123,7 @@ export const logic = {
   async switchUser() {
     const id = els.userId.value.trim();
     if (!id) {
-      ui.appendChat("error", "用户ID不能为空");
+      ui.notify("用户ID不能为空", "error");
       return;
     }
 
@@ -148,7 +148,7 @@ export const logic = {
       this.renderEmpSelect();
       await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
     } catch (err) {
-      ui.appendChat("error", `用户切换失败: ${err.message}`);
+      ui.notify(`用户切换失败: ${err.message}`, "error");
     }
   },
 
@@ -161,7 +161,7 @@ export const logic = {
 
   async saveSettings() {
     if (!state.userId) {
-      ui.appendChat("error", "请先配置用户 ID");
+      ui.notify("请先配置用户 ID", "error");
       return;
     }
     const model = $("model").value.trim();
@@ -171,11 +171,11 @@ export const logic = {
     const tokenizerModel = String($("tokenizerModel").value || "").trim().toLowerCase();
 
     if (totalTokenLimit == null) {
-      ui.appendChat("error", "请填写合法的 Total Token Limit");
+      ui.notify("请填写合法的 Total Token Limit", "error");
       return;
     }
     if (!TOKENIZER_OPTIONS.includes(tokenizerModel)) {
-      ui.appendChat("error", "请选择合法的 Tokenizer");
+      ui.notify("请选择合法的 Tokenizer", "error");
       return;
     }
 
@@ -189,24 +189,24 @@ export const logic = {
     });
     state.settings = latest || null;
     ui.applySettings(state.settings);
-    ui.appendChat("meta", "用户配置已更新");
+    ui.notify("用户配置已更新", "success");
   },
 
   async manualFlush() {
     if (!state.userId || !state.activeEmployeeId) {
-      ui.appendChat("error", "请先选择用户与员工");
+      ui.notify("请先选择用户与员工", "error");
       return;
     }
     const data = await api.post("/chat/memory/flush", employeeQuery());
     const accepted = !!data?.accepted;
-    ui.appendChat("meta", accepted ? "已触发手动刷盘" : "当前已有刷盘任务在执行");
+    ui.notify(accepted ? "已触发手动刷盘" : "当前已有刷盘任务在执行", "success");
     await this.refreshStatus();
   },
 
   async resetEmployee() {
     const targetEmployeeId = String(state.activeEmployeeId || "").trim();
     if (!state.userId || !targetEmployeeId) {
-      ui.appendChat("error", "请先选择用户与员工");
+      ui.notify("请先选择用户与员工", "error");
       return;
     }
     const confirmed = window.confirm("确认重置员工吗？将重置该员工全部数据（记忆、workspace、skills 等），效果等同删除后同编号重建。");
@@ -218,13 +218,13 @@ export const logic = {
     state.activeEmployeeId = exists ? targetEmployeeId : (state.employees[0]?.employee_id || "");
     this.renderEmpSelect();
     await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
-    ui.appendChat("meta", `员工 #${targetEmployeeId} 已重置（同编号重建）`);
+    ui.notify(`员工 #${targetEmployeeId} 已重置（同编号重建）`, "success");
   },
 
   async deleteEmployee() {
     const targetEmployeeId = String(state.activeEmployeeId || "").trim();
     if (!state.userId || !targetEmployeeId) {
-      ui.appendChat("error", "请先选择要删除的员工");
+      ui.notify("请先选择要删除的员工", "error");
       return;
     }
     const confirmed = window.confirm(`确认删除员工 #${targetEmployeeId} 吗？该员工的消息与 employee/${targetEmployeeId} 目录数据将被删除。`);
@@ -243,22 +243,22 @@ export const logic = {
     if (!state.activeEmployeeId) {
       els.chatLog.innerHTML = "";
       await this.refreshFiles({ resetExpandedDirs: true });
-      ui.appendChat("meta", `员工 #${targetEmployeeId} 已删除`);
+      ui.notify(`员工 #${targetEmployeeId} 已删除`, "success");
       return;
     }
 
     await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
-    ui.appendChat("meta", `员工 #${targetEmployeeId} 已删除`);
+    ui.notify(`员工 #${targetEmployeeId} 已删除`, "success");
   },
 
   async deleteSelectedFile() {
     const selected = state.selectedFile;
     if (!selected?.path) {
-      ui.appendChat("error", "未选择文件");
+      ui.notify("未选择文件", "error");
       return;
     }
     if (!isDeletableFilePath(selected.path)) {
-      ui.appendChat("error", "仅允许删除 brand_library 与 skill_library 下的文件");
+      ui.notify("仅允许删除 brand_library 与 skill_library 下的文件", "error");
       return;
     }
     const confirmed = window.confirm(`确认删除文件吗？\n${selected.path}`);
@@ -271,12 +271,12 @@ export const logic = {
     state.activeFile = null;
     state.selectedFile = null;
     await this.refreshFiles();
-    ui.appendChat("meta", `已删除文件：${selected.path}`);
+    ui.notify(`已删除文件：${selected.path}`, "success");
   },
 
   async uploadBrandLibraryFiles(fileList) {
     if (!state.userId) {
-      ui.appendChat("error", "请先配置并应用用户 ID");
+      ui.notify("请先配置并应用用户 ID", "error");
       return;
     }
     const files = Array.from(fileList || []).filter(Boolean);
@@ -285,7 +285,7 @@ export const logic = {
     await this.refreshFiles();
     const uploaded = Array.isArray(result?.uploaded) ? result.uploaded : [];
     if (!uploaded.length) {
-      ui.appendChat("meta", "素材上传完成");
+      ui.notify("素材上传完成", "success");
       return;
     }
     const renamedCount = uploaded.filter((item) => !!item?.renamed).length;
@@ -295,7 +295,7 @@ export const logic = {
     const detailParts = [];
     if (renamedCount > 0) detailParts.push(`${renamedCount} 个同名文件已自动重命名`);
     const detail = detailParts.length ? `（${detailParts.join("，")}）` : "";
-    ui.appendChat("meta", `素材上传成功${suffix}${detail}`);
+    ui.notify(`素材上传成功${suffix}${detail}`, "success");
   },
 
   async createEmployee() {
@@ -461,14 +461,14 @@ export const logic = {
       try {
         await this.resetEmployee();
       } catch (err) {
-        ui.appendChat("error", `重置员工失败: ${err.message}`);
+        ui.notify(`重置员工失败: ${err.message}`, "error");
       }
     };
     els.btnDeleteEmp.onclick = async () => {
       try {
         await this.deleteEmployee();
       } catch (err) {
-        ui.appendChat("error", `删除员工失败: ${err.message}`);
+        ui.notify(`删除员工失败: ${err.message}`, "error");
       }
     };
     els.btnReloadEmp.onclick = () => this.switchUser();
@@ -476,7 +476,7 @@ export const logic = {
       try {
         await this.refreshFiles();
       } catch (err) {
-        ui.appendChat("error", `刷新目录失败: ${err.message}`);
+        ui.notify(`刷新目录失败: ${err.message}`, "error");
       }
     };
     els.btnUploadBrandLibrary.onclick = () => {
@@ -489,7 +489,7 @@ export const logic = {
       try {
         await this.uploadBrandLibraryFiles(selectedFiles);
       } catch (err) {
-        ui.appendChat("error", `上传素材失败: ${err.message}`);
+        ui.notify(`上传素材失败: ${err.message}`, "error");
       } finally {
         event.target.value = "";
       }
@@ -498,7 +498,7 @@ export const logic = {
       try {
         await this.deleteSelectedFile();
       } catch (err) {
-        ui.appendChat("error", `删除文件失败: ${err.message}`);
+        ui.notify(`删除文件失败: ${err.message}`, "error");
       }
     };
 
@@ -506,11 +506,11 @@ export const logic = {
       try {
         const selected = state.selectedFile;
         if (!selected?.path) {
-          ui.appendChat("error", "未选择文件");
+          ui.notify("未选择文件", "error");
           return;
         }
         if (selected.kind !== "text") {
-          ui.appendChat("error", "当前文件不可编辑");
+          ui.notify("当前文件不可编辑", "error");
           return;
         }
 
@@ -525,9 +525,9 @@ export const logic = {
         if (file) file.content = latestContent;
         state.textFileCache[selected.path] = latestContent;
         await this.refreshFiles();
-        ui.appendChat("meta", `保存成功：${selected.path}`);
+        ui.notify(`保存成功：${selected.path}`, "success");
       } catch (err) {
-        ui.appendChat("error", `保存修改失败: ${err.message}`);
+        ui.notify(`保存修改失败: ${err.message}`, "error");
       }
     };
 
@@ -535,7 +535,7 @@ export const logic = {
       try {
         await this.manualFlush();
       } catch (err) {
-        ui.appendChat("error", `手动刷盘失败: ${err.message}`);
+        ui.notify(`手动刷盘失败: ${err.message}`, "error");
       }
     };
 
@@ -543,7 +543,7 @@ export const logic = {
       try {
         await this.loadSettings();
       } catch (err) {
-        ui.appendChat("error", `加载用户配置失败: ${err.message}`);
+        ui.notify(`加载用户配置失败: ${err.message}`, "error");
       }
       els.modal.showModal();
     };
@@ -553,7 +553,7 @@ export const logic = {
         await this.saveSettings();
         els.modal.close();
       } catch (err) {
-        ui.appendChat("error", `保存用户配置失败: ${err.message}`);
+        ui.notify(`保存用户配置失败: ${err.message}`, "error");
       }
     };
   }
