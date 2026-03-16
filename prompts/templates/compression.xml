@@ -1,9 +1,8 @@
-﻿<compression_system_prompt>
+﻿<compression_prompt>
     <base>
         {{BASE_PROMPT}}
     </base>
-    <archive_task>
-        {{ARCHIVE_TASK_PROMPT}}
-    </archive_task>
-</compression_system_prompt>
-
+    <tools>
+        {{TOOLS_PROMPT}}
+    </tools>
+</compression_prompt>

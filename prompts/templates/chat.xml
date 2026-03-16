@@ -1,4 +1,4 @@
-<system_prompt>
+<chat_prompt>
     <base>
         {{BASE_PROMPT}}
     </base>
@@ -19,4 +19,4 @@
     <memory>
         {{MEMORY_PROMPT}}
     </memory>
-</system_prompt>
+</chat_prompt>

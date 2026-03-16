@@ -44,6 +44,16 @@ def render_prompt_template(template: str, variables: Mapping[str, str]) -> str:
     return rendered.strip()
 
 
+def compose_tools_prompt(*, tool_definitions: str) -> str:
+    """构建工具策略提示词片段。"""
+    return render_prompt_template(
+        _read_section_file(TOOLS_BASE_PROMPT_FILE),
+        {
+            "TOOL_DEFINITIONS": str(tool_definitions or "").strip(),
+        },
+    ).strip()
+
+
 def compose_chat_system_prompt(
     *,
     window_preamble: str,
@@ -54,12 +64,7 @@ def compose_chat_system_prompt(
     memory_workbook: str,
 ) -> str:
     """构建数字员工聊天场景的 system 提示词。"""
-    tools_prompt = render_prompt_template(
-        _read_section_file(TOOLS_BASE_PROMPT_FILE),
-        {
-            "TOOL_DEFINITIONS": str(tool_definitions or "").strip(),
-        },
-    ).strip()
+    tools_prompt = compose_tools_prompt(tool_definitions=tool_definitions)
     base_prompt = "\n\n".join(
         part
         for part in (
@@ -82,13 +87,14 @@ def compose_chat_system_prompt(
     )
 
 
-def compose_compression_system_prompt(*, resident_base_system: str) -> str:
+def compose_compression_system_prompt(*, tool_definitions: str) -> str:
     """构建压缩归档场景的 system 提示词。"""
+    tools_prompt = compose_tools_prompt(tool_definitions=tool_definitions)
     return render_prompt_template(
         _read_template_file(COMPRESSION_TEMPLATE_FILE),
         {
-            "BASE_PROMPT": str(resident_base_system or "").strip(),
-            "ARCHIVE_TASK_PROMPT": _read_section_file(COMPRESSION_BASE_PROMPT_FILE).strip(),
+            "BASE_PROMPT": _read_section_file(COMPRESSION_BASE_PROMPT_FILE).strip(),
+            "TOOLS_PROMPT": str(tools_prompt or "").strip(),
         },
     )
 

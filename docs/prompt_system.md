@@ -35,7 +35,7 @@ prompts/
 ### 3.1 `chat.xml`
 
 ```xml
-<system_prompt>
+<chat_prompt>
     <base>
         {{BASE_PROMPT}}
     </base>
@@ -56,20 +56,20 @@ prompts/
     <memory>
         {{MEMORY_PROMPT}}
     </memory>
-</system_prompt>
+</chat_prompt>
 ```
 
 ### 3.2 `compression.xml`
 
 ```xml
-<compression_system_prompt>
-    <base>
-        {{BASE_PROMPT}}
-    </base>
+<compression_prompt>
+    <tools>
+        {{TOOLS_PROMPT}}
+    </tools>
     <archive_task>
         {{ARCHIVE_TASK_PROMPT}}
     </archive_task>
-</compression_system_prompt>
+</compression_prompt>
 ```
 
 ### 3.3 `image_generation.xml`
@@ -97,7 +97,7 @@ prompts/
 | `chat.xml` | `WORKBOOK_NOTEBOOK_PROMPT` | `workbook.md` |
 | `chat.xml` | `SCHEDULE_NOTEBOOK_PROMPT` | `schedule.md` |
 | `chat.xml` | `MEMORY_PROMPT` | `memory.md` |
-| `compression.xml` | `BASE_PROMPT` | `resident_base_system` |
+| `compression.xml` | `TOOLS_PROMPT` | `tools_base_prompt.md` 注入 `TOOL_DEFINITIONS` |
 | `compression.xml` | `ARCHIVE_TASK_PROMPT` | `compression_base_prompt.md` |
 | `image_generation.xml` | `BASE_PROMPT` | `image_generation_base_prompt.md` |
 | `image_generation.xml` | `USER_PROMPT` | 用户画图请求 |
@@ -105,7 +105,7 @@ prompts/
 ## 5. 三类调用入口
 
 - 聊天：`compose_chat_system_prompt(...)`
-- 归档压缩：`compose_compression_system_prompt(...)`
+- 归档压缩：`compose_compression_system_prompt(tool_definitions=...)`
 - 文生图：`compose_image_generation_prompt(...)`
 
 ## 6. 运行时链路
@@ -118,9 +118,11 @@ prompts/
 
 ### 6.2 归档压缩
 
-1. 生成常驻 `base_system`。
-2. 注入 `compression.xml`。
-3. 用归档消息触发 `chat.completions`，产出摘要并写回记忆。
+1. 注入 `compression.xml`：
+   - `ARCHIVE_TASK_PROMPT` 来自 `compression_base_prompt.md`
+   - `TOOLS_PROMPT` 来自 `tools_base_prompt.md`（含可用工具定义）
+2. 将旧 `dialogue` 区拼接为一段文本，作为归档 `user` 消息输入。
+3. 用归档消息触发 `chat.completions`：先读取旧 `memory.md`，再覆盖写回新的 `memory.md`，最后输出压缩摘要。
 
 ### 6.3 文生图
 

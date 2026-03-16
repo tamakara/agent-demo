@@ -240,7 +240,7 @@ sequenceDiagram
 
 ## 7. 写记忆后“即时生效”机制
 
-当工具调用 `write_memory_file` 成功后，`tool_loop.py` 会触发 `refresh_system_message`：
+在聊天主链路中，当工具调用 `write_memory_file` 成功后，`tool_loop.py` 会触发 `refresh_system_message`：
 
 ```mermaid
 sequenceDiagram
@@ -258,7 +258,8 @@ sequenceDiagram
     L->>L: replace system message in working_messages
 ```
 
-这意味着同一轮工具链中的“后续模型轮次”可以立刻看到更新后的记忆，不需要等下一个用户请求。
+这意味着同一轮工具链中的“后续模型轮次”可以立刻看到更新后的记忆，不需要等下一个用户请求。  
+压缩链路当前不依赖该刷新机制，压缩场景使用独立的 `compression.xml` system 提示词。
 
 ## 8. 压缩（compression）完整机制
 
@@ -289,9 +290,9 @@ flowchart TD
     A["compress_session_memory start"] --> B["lock session"]
     B --> C["ensure is_compressing=true"]
     C --> D["read old dialogue rows"]
-    D --> E["build archive prompt(compression.xml)"]
+    D --> E["build archive prompt(compression.xml: archive+tools)"]
     E --> F{"dialogue empty?"}
-    F -- no --> G["LLM archive + optional write_memory_file"]
+    F -- no --> G["LLM: read old memory.md -> write new memory.md(overwrite)"]
     F -- yes --> H["summary='无新增对话'"]
     G --> I["summary_text"]
     H --> I
@@ -310,9 +311,11 @@ flowchart TD
 ### 8.3 关键实现细节
 
 1. 归档输入使用“旧 `dialogue` 全量文本”（含工具消息内容）。
-2. 回填 `resident_recent` 时只保留 `role in {user, assistant}` 且 `message_kind=chat` 的近期消息。
-3. 压缩期间产生的 `buffer` 会完整迁回 `dialogue`，包括 `tool_call/tool_result`。
-4. 任何异常都会在 `except` 中回收 `is_compressing=false`，避免会话长期卡死。
+2. 归档 system 由 `compression.xml` 构建，并同时注入 `compression_base_prompt.md` 与 `tools_base_prompt.md`（含工具定义），用于辅助模型熟悉可用工具；不注入 `chat.xml` 常驻内容。
+3. 压缩任务提示词要求先读取旧 `memory.md`，再将提炼后的完整新内容以 `mode=overwrite` 写回 `memory.md`。
+4. 回填 `resident_recent` 时只保留 `role in {user, assistant}` 且 `message_kind=chat` 的近期消息。
+5. 压缩期间产生的 `buffer` 会完整迁回 `dialogue`，包括 `tool_call/tool_result`。
+6. 任何异常都会在 `except` 中回收 `is_compressing=false`，避免会话长期卡死。
 
 ## 9. 对外入口（与记忆强相关）
 

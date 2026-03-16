@@ -50,6 +50,11 @@ class PromptComposer:
         return "\n".join(lines).strip()
 
     @staticmethod
+    def render_tool_definitions_from_schema(tool_schemas: list[dict[str, Any]]) -> str:
+        """将工具 schema 渲染为提示词可读文本。"""
+        return PromptComposer._render_tool_definitions_from_schema(tool_schemas)
+
+    @staticmethod
     def _system_preamble(thresholds: WindowThresholds) -> str:
         """执行内部辅助逻辑。"""
         return (
@@ -104,7 +109,7 @@ class PromptComposer:
         tool_schemas: list[dict[str, Any]] | None = None,
     ) -> str:
         """组合并生成目标内容。"""
-        tool_defs_text = self._render_tool_definitions_from_schema(tool_schemas or [])
+        tool_defs_text = self.render_tool_definitions_from_schema(tool_schemas or [])
 
         memory_entries: dict[str, str] = {}
         for file_name in (COMPRESSED_MEMORY_FILE, PERSONA_FILE, SCHEDULE_FILE, WORKBOOK_FILE):

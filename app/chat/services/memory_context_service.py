@@ -500,37 +500,19 @@ class MemoryContextService:
             dialogue_text = "\n".join(
                 [f"[{row['role']}] {row['content']}" for row in dialogue_rows if str(row["content"]).strip()]
             )
-            base_system = await self._compose_resident_system_text(
-                user_id=user_id,
-                employee_id=employee_id,
-                session_id=session_id,
-                tokenizer_model=tokenizer_model,
-                thresholds=thresholds,
-            )
 
         summary_text = "（无新增对话，保持原摘要）"
 
-        async def refresh_system_message() -> str:
-            """归档阶段写入记忆文件后，实时刷新 system 文本。"""
-            latest_thresholds, latest_tokenizer_model = await self._get_window_config(
-                user_id,
-                fallback_model=llm_config.model,
-            )
-            return await self._compose_resident_system_text(
-                user_id=user_id,
-                employee_id=employee_id,
-                session_id=session_id,
-                tokenizer_model=latest_tokenizer_model,
-                thresholds=latest_thresholds,
-            )
-
         try:
             if dialogue_text.strip():
+                tool_defs_text = self.prompt_composer.render_tool_definitions_from_schema(
+                    self._list_tool_schemas()
+                )
                 # 对话非空时调用 LLM 执行归档总结，并允许工具写入记忆文件。
                 archive_messages = [
                     {
                         "role": "system",
-                        "content": compose_compression_system_prompt(resident_base_system=base_system),
+                        "content": compose_compression_system_prompt(tool_definitions=tool_defs_text),
                     },
                     {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
                 ]
@@ -540,7 +522,6 @@ class MemoryContextService:
                     messages=archive_messages,
                     llm_config=llm_config,
                     max_tool_rounds=max_tool_rounds,
-                    refresh_system_message=refresh_system_message,
                 )
                 summary_text = archive_result.assistant_text.strip() or summary_text
 
