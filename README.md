@@ -6,7 +6,7 @@
 2. 三模块组织（`chat / user / storage`）
 3. 端口-适配器设计（Ports & Adapters）
 4. 统一 API JSON Envelope + SSE Envelope
-4. 数字员工级 token 预算与自动/手动刷盘
+5. 数字员工级 token 预算与自动/手动刷盘
 
 ## 1. 目录结构
 
@@ -97,16 +97,12 @@ python run.py
 
 ## 6. 文档入口
 
-文档已按专题拆分，见：
+文档已重构为高内聚文档集，见：
 
 - [docs/README.md](docs/README.md)
-- [docs/architecture.md](docs/architecture.md)
-- [docs/layering.md](docs/layering.md)
-- [docs/api_reference.md](docs/api_reference.md)
-- [docs/sse_protocol.md](docs/sse_protocol.md)
-- [docs/data_model.md](docs/data_model.md)
-- [docs/session_window_and_flush.md](docs/session_window_and_flush.md)
-- [docs/frontend_guide.md](docs/frontend_guide.md)
-- [docs/multi_user.md](docs/multi_user.md)
-- [docs/core_modules.md](docs/core_modules.md)
-- [docs/testing.md](docs/testing.md)
+- [docs/system_design.md](docs/system_design.md)
+- [docs/state_and_persistence.md](docs/state_and_persistence.md)
+- [docs/api_and_streaming.md](docs/api_and_streaming.md)
+- [docs/prompt_system.md](docs/prompt_system.md)
+- [docs/frontend_integration.md](docs/frontend_integration.md)
+- [docs/image_pipeline.md](docs/image_pipeline.md)
