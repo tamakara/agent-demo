@@ -1,4 +1,4 @@
-"""SQLite 仓储实现与数据访问逻辑。"""
+﻿"""SQLite 仓储实现与数据访问逻辑。"""
 
 from __future__ import annotations
 
@@ -78,13 +78,14 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     user_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
                     workbench_summary TEXT NOT NULL DEFAULT '',
-                    is_flushing INTEGER NOT NULL DEFAULT 0,
+                    is_compressing INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY(user_id, session_id)
                 );
                 """
             )
+            self._ensure_sessions_schema(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS app_settings (
@@ -139,6 +140,38 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             )
             conn.commit()
             self._conn = conn
+
+    @staticmethod
+    def _ensure_sessions_schema(conn: sqlite3.Connection) -> None:
+        """确保 ``sessions`` 表包含当前版本所需列。"""
+        columns = [
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(sessions);").fetchall()
+            if row["name"] is not None
+        ]
+        if "is_compressing" in columns:
+            return
+
+        conn.execute(
+            """
+            ALTER TABLE sessions
+            ADD COLUMN is_compressing INTEGER NOT NULL DEFAULT 0;
+            """
+        )
+
+        legacy_flag_columns = [
+            name
+            for name in columns
+            if name.startswith("is_") and name != "is_compressing"
+        ]
+        if not legacy_flag_columns:
+            return
+
+        source_column = legacy_flag_columns[0]
+        safe_source_column = source_column.replace('"', '""')
+        conn.execute(
+            f'UPDATE sessions SET is_compressing = COALESCE("{safe_source_column}", 0);'
+        )
 
     @staticmethod
     def _ensure_app_settings_schema(conn: sqlite3.Connection) -> None:
@@ -249,7 +282,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     user_id,
                     session_id,
                     workbench_summary,
-                    is_flushing,
+                    is_compressing,
                     created_at,
                     updated_at
                 FROM sessions
@@ -263,7 +296,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 "user_id": row["user_id"],
                 "session_id": row["session_id"],
                 "workbench_summary": row["workbench_summary"] or "",
-                "is_flushing": bool(row["is_flushing"]),
+                "is_compressing": bool(row["is_compressing"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -330,15 +363,15 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             conn.commit()
         return await self.get_global_settings(settings.user_id)
 
-    async def set_is_flushing(self, user_id: str, session_id: str, value: bool) -> None:
-        """更新会话 ``is_flushing`` 状态。"""
+    async def set_is_compressing(self, user_id: str, session_id: str, value: bool) -> None:
+        """更新会话 ``is_compressing`` 状态。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
             conn.execute(
                 """
                 UPDATE sessions
-                SET is_flushing = ?, updated_at = CURRENT_TIMESTAMP
+                SET is_compressing = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ? AND session_id = ?;
                 """,
                 (1 if value else 0, user_id, session_id),
@@ -483,7 +516,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 SELECT
                     s.user_id,
                     s.session_id,
-                    s.is_flushing,
+                    s.is_compressing,
                     s.created_at,
                     s.updated_at,
                     COALESCE(COUNT(m.id), 0) AS message_count
@@ -492,7 +525,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     ON s.user_id = m.user_id
                     AND s.session_id = m.session_id
                 WHERE s.user_id = ?
-                GROUP BY s.user_id, s.session_id, s.is_flushing, s.created_at, s.updated_at
+                GROUP BY s.user_id, s.session_id, s.is_compressing, s.created_at, s.updated_at
                 ORDER BY s.updated_at DESC, s.created_at DESC
                 LIMIT ?;
                 """,
@@ -509,3 +542,4 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 (user_id, session_id),
             )
             conn.commit()
+

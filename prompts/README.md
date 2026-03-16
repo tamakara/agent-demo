@@ -14,7 +14,7 @@
 - 片段：`sections/chat_base_prompt.md`、`sections/tools_base_prompt.md`
 - 动态注入：窗口预算、工具清单、记忆文件、工作台摘要
 
-2. 归档刷盘（chat.completions）
+2. 归档压缩（chat.completions）
 - 模板：`templates/compression.xml`
 - 片段：`sections/compression_base_prompt.md`
 - 动态注入：会话常驻 system 文本
@@ -28,3 +28,4 @@
 
 模板占位符统一使用 `{{VARIABLE_NAME}}`。
 代码会在运行时按变量名执行字符串替换。
+

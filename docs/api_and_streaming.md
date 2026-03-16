@@ -1,4 +1,4 @@
-# API 与流式协议
+﻿# API 与流式协议
 
 ## 1. 文档目标
 
@@ -69,7 +69,7 @@
 
 - `POST /chat/stream`
 - `GET /chat/memory/status?user_id=...&employee_id=...`
-- `POST /chat/memory/flush`
+- `POST /chat/memory/compression`
 
 `POST /chat/stream` 请求体示例：
 
@@ -170,4 +170,5 @@ data: { ...json envelope... }
 
 - 工具调用参数不匹配 schema。
 - 上游模型请求失败或超时。
-- 刷盘期间 `buffer` 超限，拒绝新消息。
+- 压缩期间 `buffer` 超限，拒绝新消息。
+

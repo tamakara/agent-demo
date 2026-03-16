@@ -1,4 +1,4 @@
-﻿"""聊天记忆上下文服务：管理窗口、摘要与刷盘生命周期。"""
+﻿"""聊天记忆上下文服务：管理窗口、摘要与压缩生命周期。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from app.ports.repositories import (
 from common.errors import ValidationError
 from domain.models import ChatProcessResult, LLMConfig, MemoryStatus
 from domain.prompt_composer import PromptComposer
-from domain.prompt_templates import compose_flush_archive_system_prompt
+from domain.prompt_templates import compose_compression_system_prompt
 from domain.tool_protocol import (
     build_message_from_tool_event_row,
     is_tool_persistable_event,
@@ -33,7 +33,7 @@ from domain.window_policy import WindowThresholds
 
 
 class MemoryContextService:
-    """管理会话级记忆分区与刷盘生命周期。"""
+    """管理会话级记忆分区与压缩生命周期。"""
 
     def __init__(
         self,
@@ -64,11 +64,11 @@ class MemoryContextService:
 
     @staticmethod
     def _ensure_buffer_capacity(*, existing_tokens: int, incoming_tokens: int, buffer_limit: int) -> None:
-        """刷盘期间校验缓冲区容量，超限时拒绝新消息。"""
+        """压缩期间校验缓冲区容量，超限时拒绝新消息。"""
         if existing_tokens + incoming_tokens <= buffer_limit:
             return
         raise ValidationError(
-            "当前会话正在刷盘，缓冲区已满，请稍后重试。"
+            "当前会话正在压缩，缓冲区已满，请稍后重试。"
             f"（buffer={existing_tokens} + incoming={incoming_tokens} > limit={buffer_limit}）"
         )
 
@@ -311,7 +311,7 @@ class MemoryContextService:
             resident_tokens=resident_tokens,
             dialogue_tokens=dialogue_tokens,
             buffer_tokens=buffer_tokens,
-            is_flushing=bool(session.get("is_flushing", False)),
+            is_compressing=bool(session.get("is_compressing", False)),
             thresholds=thresholds.as_dict(),
         )
 
@@ -353,7 +353,7 @@ class MemoryContextService:
             )
 
         async with lock:
-            # 1) 写入用户消息，刷盘期间写入 buffer 分区，避免污染当前对话窗口。
+            # 1) 写入用户消息，压缩期间写入 buffer 分区，避免污染当前对话窗口。
             await self.session_repo.ensure_session(user_id, session_id)
             session = await self.session_repo.get_session(user_id, session_id)
             thresholds, tokenizer_model = await self._get_window_config(
@@ -361,7 +361,7 @@ class MemoryContextService:
                 fallback_model=llm_config.model,
             )
 
-            message_zone = "buffer" if session["is_flushing"] else "dialogue"
+            message_zone = "buffer" if session["is_compressing"] else "dialogue"
             user_token_count = self.token_counter.count_tokens(user_message, tokenizer_model)
             if message_zone == "buffer":
                 zone_tokens = await self.message_repo.sum_tokens_by_zone(user_id, session_id)
@@ -399,7 +399,7 @@ class MemoryContextService:
             )
 
             session_after = await self.session_repo.get_session(user_id, session_id)
-            assistant_zone = "buffer" if session_after["is_flushing"] else "dialogue"
+            assistant_zone = "buffer" if session_after["is_compressing"] else "dialogue"
 
             # 3) 先落库工具事件，再落库 assistant 最终文本，保证重放顺序稳定。
             await self._persist_tool_events(
@@ -431,12 +431,12 @@ class MemoryContextService:
             )
 
             status = await self.get_status(user_id, employee_id, session_id, tokenizer_model)
-            flush_scheduled = False
-            flush_trigger = int(status.thresholds.get("flush_trigger", thresholds.total_limit))
-            if status.total_tokens >= flush_trigger and not session_after["is_flushing"]:
-                # 触发阈值后只打标记，不在这里执行刷盘；实际刷盘由外层后台任务接管。
-                await self.session_repo.set_is_flushing(user_id, session_id, True)
-                flush_scheduled = True
+            compression_scheduled = False
+            compression_trigger = int(status.thresholds.get("compression_trigger", thresholds.total_limit))
+            if status.total_tokens >= compression_trigger and not session_after["is_compressing"]:
+                # 触发阈值后只打标记，不在这里执行压缩；实际压缩由外层后台任务接管。
+                await self.session_repo.set_is_compressing(user_id, session_id, True)
+                compression_scheduled = True
                 status = MemoryStatus(
                     user_id=status.user_id,
                     employee_id=status.employee_id,
@@ -445,7 +445,7 @@ class MemoryContextService:
                     resident_tokens=status.resident_tokens,
                     dialogue_tokens=status.dialogue_tokens,
                     buffer_tokens=status.buffer_tokens,
-                    is_flushing=True,
+                    is_compressing=True,
                     thresholds=status.thresholds,
                 )
 
@@ -454,21 +454,21 @@ class MemoryContextService:
             tool_events=live_tool_events,
             usage=agent_result.usage,
             status=status,
-            flush_scheduled=flush_scheduled,
+            compression_scheduled=compression_scheduled,
         )
 
-    async def try_start_manual_flush(self, user_id: str, session_id: str) -> bool:
-        """尝试进入手动刷盘状态，返回是否抢占成功。"""
+    async def try_start_manual_compression(self, user_id: str, session_id: str) -> bool:
+        """尝试进入手动压缩状态，返回是否抢占成功。"""
         lock = await self._get_session_lock(user_id, session_id)
         async with lock:
             await self.session_repo.ensure_session(user_id, session_id)
             session = await self.session_repo.get_session(user_id, session_id)
-            if session["is_flushing"]:
+            if session["is_compressing"]:
                 return False
-            await self.session_repo.set_is_flushing(user_id, session_id, True)
+            await self.session_repo.set_is_compressing(user_id, session_id, True)
             return True
 
-    async def flush_session_memory(
+    async def compress_session_memory(
         self,
         user_id: str,
         employee_id: str,
@@ -476,14 +476,14 @@ class MemoryContextService:
         llm_config: LLMConfig,
         max_tool_rounds: int,
     ) -> None:
-        """执行会话刷盘：归档摘要、重建常驻近期窗口并清理分区。"""
+        """执行会话压缩：归档摘要、重建常驻近期窗口并清理分区。"""
         lock = await self._get_session_lock(user_id, session_id)
 
         async with lock:
             await self.session_repo.ensure_session(user_id, session_id)
             session = await self.session_repo.get_session(user_id, session_id)
-            if not session["is_flushing"]:
-                await self.session_repo.set_is_flushing(user_id, session_id, True)
+            if not session["is_compressing"]:
+                await self.session_repo.set_is_compressing(user_id, session_id, True)
 
             thresholds, tokenizer_model = await self._get_window_config(
                 user_id,
@@ -530,7 +530,7 @@ class MemoryContextService:
                 archive_messages = [
                     {
                         "role": "system",
-                        "content": compose_flush_archive_system_prompt(resident_base_system=base_system),
+                        "content": compose_compression_system_prompt(resident_base_system=base_system),
                     },
                     {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
                 ]
@@ -555,7 +555,7 @@ class MemoryContextService:
                     ascending=False,
                     limit=5000,
                 )
-                # 收集刷盘期间新增的 buffer 消息，刷盘完成后迁回 dialogue。
+                # 收集压缩期间新增的 buffer 消息，压缩完成后迁回 dialogue。
                 buffer_rows = await self.message_repo.list_messages(
                     user_id,
                     session_id,
@@ -596,10 +596,11 @@ class MemoryContextService:
                     )
 
                 await self.session_repo.update_workbench_summary(user_id, session_id, summary_text)
-                await self.session_repo.set_is_flushing(user_id, session_id, False)
+                await self.session_repo.set_is_compressing(user_id, session_id, False)
         except Exception:  # noqa: BLE001
-            # 任意异常都要回收 flushing 标记，避免会话永久卡住。
+            # 任意异常都要回收 compressing 标记，避免会话永久卡住。
             async with lock:
-                await self.session_repo.set_is_flushing(user_id, session_id, False)
+                await self.session_repo.set_is_compressing(user_id, session_id, False)
             raise
+
 

@@ -82,8 +82,8 @@ def compose_chat_system_prompt(
     )
 
 
-def compose_flush_archive_system_prompt(*, resident_base_system: str) -> str:
-    """构建刷盘归档场景的 system 提示词。"""
+def compose_compression_system_prompt(*, resident_base_system: str) -> str:
+    """构建压缩归档场景的 system 提示词。"""
     return render_prompt_template(
         _read_template_file(COMPRESSION_TEMPLATE_FILE),
         {
@@ -102,3 +102,4 @@ def compose_image_generation_prompt(*, user_prompt: str) -> str:
             "USER_PROMPT": str(user_prompt or "").strip(),
         },
     )
+

@@ -1,4 +1,4 @@
-"""API 层依赖装配与应用容器构建。"""
+﻿"""API 层依赖装配与应用容器构建。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from app.chat.services.memory_context_service import MemoryContextService
 from app.chat.use_cases.chat_stream_use_case import ChatStreamUseCase
-from app.chat.use_cases.flush_use_case import FlushUseCase
+from app.chat.use_cases.compression_use_case import CompressionUseCase
 from app.chat.use_cases.memory_status_use_case import MemoryStatusUseCase
 from app.storage.services.memory_file_service import MemoryFileService
 from app.user.services.employee_service import EmployeeService
@@ -26,7 +26,7 @@ class AppContainer:
     sqlite_repo: SQLiteRepository
     memory_file_repo: FileMemoryRepository
     chat_stream_use_case: ChatStreamUseCase
-    flush_use_case: FlushUseCase
+    compression_use_case: CompressionUseCase
     memory_status_use_case: MemoryStatusUseCase
     employee_service: EmployeeService
     settings_service: SettingsService
@@ -60,7 +60,7 @@ async def build_container() -> AppContainer:
 
     # 组装应用层用例与外部服务门面。
     chat_stream_use_case = ChatStreamUseCase(memory_context)
-    flush_use_case = FlushUseCase(memory_context)
+    compression_use_case = CompressionUseCase(memory_context)
     memory_status_use_case = MemoryStatusUseCase(memory_context)
 
     employee_service = EmployeeService(session_repo=sqlite_repo, message_repo=sqlite_repo)
@@ -71,9 +71,10 @@ async def build_container() -> AppContainer:
         sqlite_repo=sqlite_repo,
         memory_file_repo=memory_file_repo,
         chat_stream_use_case=chat_stream_use_case,
-        flush_use_case=flush_use_case,
+        compression_use_case=compression_use_case,
         memory_status_use_case=memory_status_use_case,
         employee_service=employee_service,
         settings_service=settings_service,
         memory_file_service=memory_file_service,
     )
+

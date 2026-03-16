@@ -1,4 +1,4 @@
-"""聊天与记忆模块路由。"""
+﻿"""聊天与记忆模块路由。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.dependencies import AppContainer
-from api.requests import ChatStreamRequest, FlushRequest
+from api.requests import ChatStreamRequest, CompressionRequest
 from api.routes_shared import FIXED_MAX_TOOL_ROUNDS, memory_status_to_dict, new_request_id, normalize_user_path, raise_http
 from api.routes_shared import resolve_employee
 from api.sse import SSEEnvelopeBuilder
@@ -125,16 +125,16 @@ def create_chat_router(container: AppContainer) -> APIRouter:
                     {"content": result.assistant_text, "usage": result.usage or {}},
                 )
 
-                if result.flush_scheduled:
+                if result.compression_scheduled:
                     background_tasks.add_task(
-                        container.flush_use_case.flush,
+                        container.compression_use_case.compress,
                         user_id=normalized_user_id,
                         employee_id=normalized_employee_id,
                         session_id=session_id,
                         llm_config=llm_config,
                         max_tool_rounds=max_tool_rounds,
                     )
-                    yield builder.frame("meta", {"flush_scheduled": True, "reason": "触发token阈值"})
+                    yield builder.frame("meta", {"compression_scheduled": True, "reason": "触发token阈值"})
 
                 yield builder.frame("memory_status", memory_status_to_dict(result.status))
                 yield builder.frame("done", {"ok": True})
@@ -183,12 +183,12 @@ def create_chat_router(container: AppContainer) -> APIRouter:
         except AppError as exc:
             raise raise_http(exc, request_id) from exc
 
-    @router.post("/chat/memory/flush")
-    async def memory_flush(
-        request: FlushRequest,
+    @router.post("/chat/memory/compression")
+    async def memory_compression(
+        request: CompressionRequest,
         background_tasks: BackgroundTasks,
     ) -> JSONResponse:
-        """手动触发数字员工记忆刷盘。"""
+        """手动触发数字员工记忆压缩。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(request.user_id)
@@ -204,13 +204,13 @@ def create_chat_router(container: AppContainer) -> APIRouter:
             llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
             max_tool_rounds = FIXED_MAX_TOOL_ROUNDS
 
-            accepted = await container.flush_use_case.try_start_manual_flush(
+            accepted = await container.compression_use_case.try_start_manual_compression(
                 user_id=normalized_user_id,
                 session_id=session_id,
             )
             if accepted:
                 background_tasks.add_task(
-                    container.flush_use_case.flush,
+                    container.compression_use_case.compress,
                     user_id=normalized_user_id,
                     employee_id=normalized_employee_id,
                     session_id=session_id,
@@ -231,7 +231,7 @@ def create_chat_router(container: AppContainer) -> APIRouter:
                         "user_id": normalized_user_id,
                         "employee_id": normalized_employee_id,
                         "session_id": session_id,
-                        "is_flushing": status.is_flushing,
+                        "is_compressing": status.is_compressing,
                     },
                 )
             )
@@ -239,3 +239,4 @@ def create_chat_router(container: AppContainer) -> APIRouter:
             raise raise_http(exc, request_id) from exc
 
     return router
+

@@ -1,4 +1,4 @@
-"""应用层端口协议与回调类型定义。"""
+﻿"""应用层端口协议与回调类型定义。"""
 
 from __future__ import annotations
 
@@ -35,8 +35,8 @@ class SessionRepositoryPort(Protocol):
         """删除会话；关联消息由存储层级联删除。"""
         ...
 
-    async def set_is_flushing(self, user_id: str, session_id: str, value: bool) -> None:
-        """更新会话刷盘状态标记。"""
+    async def set_is_compressing(self, user_id: str, session_id: str, value: bool) -> None:
+        """更新会话压缩状态标记。"""
         ...
 
     async def update_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
@@ -190,3 +190,4 @@ class ToolSchemaProviderPort(Protocol):
     def list_tool_schemas(self) -> list[dict[str, Any]]:
         """返回可用于提示词渲染的工具 Schema 列表。"""
         ...
+

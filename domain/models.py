@@ -1,4 +1,4 @@
-"""领域层核心数据模型定义。"""
+﻿"""领域层核心数据模型定义。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class EmployeeEntry:
     user_id: str
     employee_id: str
     session_id: str
-    is_flushing: bool
+    is_compressing: bool
     created_at: str
     updated_at: str
     message_count: int
@@ -59,7 +59,7 @@ class ChatProcessResult:
     tool_events: list[dict[str, Any]]
     usage: dict[str, Any] | None
     status: MemoryStatus
-    flush_scheduled: bool
+    compression_scheduled: bool
 
 
 @dataclass(slots=True)
@@ -90,15 +90,16 @@ class MemoryStatus:
     resident_tokens: int
     dialogue_tokens: int
     buffer_tokens: int
-    is_flushing: bool
+    is_compressing: bool
     thresholds: dict[str, int]
 
 
 @dataclass(slots=True)
-class FlushResult:
-    """手动刷盘结果。"""
+class CompressionResult:
+    """手动压缩结果。"""
     accepted: bool
     user_id: str
     employee_id: str
     session_id: str
-    is_flushing: bool
+    is_compressing: bool
+

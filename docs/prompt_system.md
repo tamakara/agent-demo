@@ -1,4 +1,4 @@
-# 提示词系统
+﻿# 提示词系统
 
 ## 1. 文档目标
 
@@ -62,14 +62,14 @@ prompts/
 ### 3.2 `compression.xml`
 
 ```xml
-<flush_archive_system_prompt>
+<compression_system_prompt>
     <base>
         {{BASE_PROMPT}}
     </base>
     <archive_task>
         {{ARCHIVE_TASK_PROMPT}}
     </archive_task>
-</flush_archive_system_prompt>
+</compression_system_prompt>
 ```
 
 ### 3.3 `image_generation.xml`
@@ -105,7 +105,7 @@ prompts/
 ## 5. 三类调用入口
 
 - 聊天：`compose_chat_system_prompt(...)`
-- 归档压缩：`compose_flush_archive_system_prompt(...)`
+- 归档压缩：`compose_compression_system_prompt(...)`
 - 文生图：`compose_image_generation_prompt(...)`
 
 ## 6. 运行时链路
@@ -135,3 +135,4 @@ prompts/
 3. 新增类型时依次新增模板、片段、`compose_*` 函数。
 4. 占位符统一格式：`{{VARIABLE_NAME}}`。
 5. 模板渲染统一经 `render_prompt_template(...)`，禁止绕过渲染器手工拼接。
+

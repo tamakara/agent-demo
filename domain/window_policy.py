@@ -1,4 +1,4 @@
-"""会话窗口预算策略定义。"""
+﻿"""会话窗口预算策略定义。"""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class WindowThresholds:
     resident_limit: int
     dialogue_limit: int
     buffer_limit: int
-    flush_trigger: int
+    compression_trigger: int
 
     @classmethod
     def from_total_limit(cls, total_limit: int) -> WindowThresholds:
@@ -46,7 +46,7 @@ class WindowThresholds:
             resident_limit=resident_limit,
             dialogue_limit=dialogue_limit,
             buffer_limit=buffer_limit,
-            flush_trigger=normalized,
+            compression_trigger=normalized,
         )
 
     def as_dict(self) -> dict[str, int]:
@@ -60,5 +60,6 @@ class WindowThresholds:
             "dialogue_limit": self.dialogue_limit,
             "buffer_limit": self.buffer_limit,
             "total_limit": self.total_limit,
-            "flush_trigger": self.flush_trigger,
+            "compression_trigger": self.compression_trigger,
         }
+

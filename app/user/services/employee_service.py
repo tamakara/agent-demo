@@ -25,7 +25,7 @@ class EmployeeService:
             user_id=str(data.get("user_id", "")),
             employee_id=employee_id,
             session_id=session_id,
-            is_flushing=bool(data.get("is_flushing", False)),
+            is_compressing=bool(data.get("is_compressing", False)),
             created_at=str(data.get("created_at", "")),
             updated_at=str(data.get("updated_at", "")),
             message_count=int(data.get("message_count", 0)),
@@ -132,3 +132,4 @@ class EmployeeService:
             limit=limit,
         )
         return [self._build_employee_message_entry(row, employee.employee_id) for row in rows]
+

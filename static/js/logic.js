@@ -1,4 +1,4 @@
-import { api } from "./api_client.js";
+﻿import { api } from "./api_client.js";
 import { $, els } from "./dom.js";
 import {
   CONFIG,
@@ -259,14 +259,14 @@ export const logic = {
     ui.notify("用户配置已更新", "success");
   },
 
-  async manualFlush() {
+  async manualCompression() {
     if (!state.userId || !state.activeEmployeeId) {
       ui.notify("请先选择用户与员工", "error");
       return;
     }
-    const data = await api.post("/chat/memory/flush", employeeQuery());
+    const data = await api.post("/chat/memory/compression", employeeQuery());
     const accepted = !!data?.accepted;
-    ui.notify(accepted ? "已触发手动刷盘" : "当前已有刷盘任务在执行", "success");
+    ui.notify(accepted ? "已触发手动压缩" : "当前已有压缩任务在执行", "success");
     await this.refreshStatus();
   },
 
@@ -589,11 +589,11 @@ export const logic = {
       }
     };
 
-    els.btnForceFlush.onclick = async () => {
+    els.btnForceCompression.onclick = async () => {
       try {
-        await this.manualFlush();
+        await this.manualCompression();
       } catch (err) {
-        ui.notify(`手动刷盘失败: ${err.message}`, "error");
+        ui.notify(`手动压缩失败: ${err.message}`, "error");
       }
     };
 
@@ -616,3 +616,4 @@ export const logic = {
     };
   }
 };
+

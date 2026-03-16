@@ -1,4 +1,4 @@
-// =================DOM 节点缓存=================
+﻿// =================DOM 节点缓存=================
 export const $ = (id) => document.getElementById(id);
 
 export const els = {
@@ -13,6 +13,7 @@ export const els = {
   fileImagePreview: $("fileImagePreview"), fileImagePreviewImg: $("fileImagePreviewImg"), fileImagePreviewPath: $("fileImagePreviewPath"),
   modal: $("settingsModal"), btnSettings: $("openSettingsBtn"),
   tokenSum: $("tokenSummary"), resBar: $("residentBar"), diaBar: $("dialogueBar"), bufBar: $("bufferBar"),
-  btnForceFlush: $("forceFlushBtn")
+  btnForceCompression: $("forceCompressionBtn")
 };
+
 

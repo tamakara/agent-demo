@@ -1,4 +1,4 @@
-import { $, els } from "./dom.js";
+﻿import { $, els } from "./dom.js";
 import {
   DEFAULT_TOKENIZER_MODEL,
   TOKENIZER_OPTIONS,
@@ -164,7 +164,7 @@ export const ui = {
       dialogue_tokens = 0,
       buffer_tokens = 0,
       total_tokens = 0,
-      is_flushing = false
+      is_compressing = false
     } = status;
     const limit = thresholds.total_limit || 200000;
     const residentBudget = thresholds.resident_limit || 0;
@@ -181,7 +181,7 @@ export const ui = {
     els.bufBar.style.width = `${getPct(buffer_tokens)}%`;
 
     els.tokenSum.innerHTML = [
-      `刷盘状态: <b>${is_flushing ? "刷盘中" : "空闲"}</b>`,
+      `压缩状态: <b>${is_compressing ? "压缩中" : "空闲"}</b>`,
       `常驻区: <b>${fmt(resident_tokens)} token</b> / <b>${fmt(residentBudget)} token</b>`,
       `对话区: <b>${fmt(dialogue_tokens)} token</b> / <b>${fmt(dialogueBudget)} token</b>`,
       `缓冲区: <b>${fmt(buffer_tokens)} token</b> / <b>${fmt(bufferBudget)} token</b> (剩余 ${fmt(bufferRemaining)} token)`,
@@ -322,7 +322,7 @@ export const ui = {
     [
       els.empSelect, els.btnNewEmp, els.btnResetEmp, els.btnDeleteEmp, els.btnReloadEmp,
       els.btnUploadBrandLibrary, els.uploadBrandLibraryInput, els.btnReloadFiles,
-      els.btnSettings, els.btnForceFlush, $("saveConfigBtn"), els.btnDeleteFile, els.btnSaveFile,
+      els.btnSettings, els.btnForceCompression, $("saveConfigBtn"), els.btnDeleteFile, els.btnSaveFile,
       els.msgInput, els.chatForm.querySelector("button")
     ].forEach((el) => {
       el.disabled = disabled;
@@ -336,3 +336,4 @@ export const ui = {
     if (!state.userId) els.msgInput.placeholder = "请先配置并应用用户 ID...";
   }
 };
+

@@ -1,4 +1,4 @@
-# 前端接入与状态管理
+﻿# 前端接入与状态管理
 
 ## 1. 文档目标
 
@@ -30,7 +30,7 @@
 常用接口：
 
 - User：`/user/settings`、`/user/employees`、`/user/employee-messages`
-- Chat：`/chat/stream`、`/chat/memory/status`、`/chat/memory/flush`
+- Chat：`/chat/stream`、`/chat/memory/status`、`/chat/memory/compression`
 - Storage：`/storage/tree`、`/storage/file-content`、`/storage/file-preview`、`/storage/file`、`/storage/brand-library/upload`
 
 ## 4. SSE 解析策略
@@ -68,3 +68,4 @@
 2. `chat/stream` 可正确处理 `tool_call/tool_result` 事件。
 3. 用户与员工切换后，消息与文件视图隔离。
 4. 文件编辑、上传、删除、预览链路完整可用。
+

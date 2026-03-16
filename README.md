@@ -6,7 +6,7 @@
 2. 三模块组织（`chat / user / storage`）
 3. 端口-适配器设计（Ports & Adapters）
 4. 统一 API JSON Envelope + SSE Envelope
-5. 数字员工级 token 预算与自动/手动刷盘
+5. 数字员工级 token 预算与自动/手动压缩
 
 ## 1. 目录结构
 
@@ -33,7 +33,7 @@ agent-demo/
 - 流式聊天（`POST /chat/stream`，SSE）
 - 工具调用（读写记忆文件、获取系统时间）
 - 员工记忆文件管理（读取、覆盖、重置）
-- token 分区统计与刷盘（自动 + 手动）
+- token 分区统计与压缩（自动 + 手动）
 
 ## 3. 运行方式
 
@@ -106,3 +106,4 @@ python run.py
 - [docs/prompt_system.md](docs/prompt_system.md)
 - [docs/frontend_integration.md](docs/frontend_integration.md)
 - [docs/image_pipeline.md](docs/image_pipeline.md)
+

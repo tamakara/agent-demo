@@ -1,4 +1,4 @@
-"""系统提示词与消息窗口拼装逻辑。"""
+﻿"""系统提示词与消息窗口拼装逻辑。"""
 
 from __future__ import annotations
 
@@ -58,8 +58,8 @@ class PromptComposer:
             f" + 最近区 {thresholds.recent_total_limit}（10%=摘要 {thresholds.summary_limit}"
             f" + 原始 {thresholds.recent_raw_limit}）"
             f" + 对话区 {thresholds.dialogue_limit}（80%，工具事件计入此区）。\n"
-            f"- 当非刷盘状态下总量超过 {thresholds.flush_trigger} token 会触发刷盘。\n"
-            f"- 刷盘期间启用临时缓冲区：上限 {thresholds.buffer_limit} token（等于对话区 80%）；"
+            f"- 当非压缩状态下总量超过 {thresholds.compression_trigger} token 会触发压缩。\n"
+            f"- 压缩期间启用临时缓冲区：上限 {thresholds.buffer_limit} token（等于对话区 80%）；"
             "缓冲区超限时应拒绝新消息并提示稍后重试。\n"
             "- 请优先复用已有记忆，并在必要时调用工具更新记忆。"
         )
@@ -212,3 +212,4 @@ class PromptComposer:
             previous_role = "assistant" if normalized_role == "tool" else normalized_role
             break
         return previous_role
+

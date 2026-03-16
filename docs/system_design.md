@@ -1,4 +1,4 @@
-# 系统设计与分层
+﻿# 系统设计与分层
 
 ## 1. 文档目标
 
@@ -9,7 +9,7 @@
 - 核心链路如何在各层流转
 - 多用户隔离在架构层如何落地
 
-不包含接口字段与协议细节（见 `api_and_streaming.md`），不包含 token 预算与刷盘细节（见 `state_and_persistence.md`）。
+不包含接口字段与协议细节（见 `api_and_streaming.md`），不包含 token 预算与压缩细节（见 `state_and_persistence.md`）。
 
 ## 2. 设计目标
 
@@ -50,7 +50,7 @@ common: 可被所有层复用
 - 会话处理与流式回复
 - 上下文预算与裁剪
 - 工具循环与工具消息持久化
-- 自动/手动刷盘与长期记忆更新
+- 自动/手动压缩与长期记忆更新
 
 关键文件：
 
@@ -94,12 +94,12 @@ common: 可被所有层复用
 4. `infra/llm/openai_gateway.py` 执行模型调用与工具循环。
 5. 结果通过 SSE envelope 回传前端。
 
-### 6.2 刷盘链路
+### 6.2 压缩链路
 
-1. 达到阈值后会话标记 `is_flushing=true`。
+1. 达到阈值后会话标记 `is_compressing=true`。
 2. 旧 `dialogue` 归档并更新长期记忆。
-3. 刷盘期间 `buffer` 消息迁移到新 `dialogue`。
-4. 结束后恢复 `is_flushing=false`。
+3. 压缩期间 `buffer` 消息迁移到新 `dialogue`。
+4. 结束后恢复 `is_compressing=false`。
 
 ## 7. 端口与适配器
 
@@ -128,3 +128,4 @@ common: 可被所有层复用
 1. 新增外部依赖优先放到 `infra` 并实现端口，不在 `domain/app` 直接接 SDK。
 2. 新增业务流程先在 `app/use_cases` 编排，再下沉共性逻辑到 `services` 或 `domain`。
 3. 避免跨层捷径调用（如 `api` 直接访问 SQLite）。
+

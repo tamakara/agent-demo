@@ -1,8 +1,9 @@
-<flush_archive_system_prompt>
+﻿<compression_system_prompt>
     <base>
         {{BASE_PROMPT}}
     </base>
     <archive_task>
         {{ARCHIVE_TASK_PROMPT}}
     </archive_task>
-</flush_archive_system_prompt>
+</compression_system_prompt>
+

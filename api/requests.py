@@ -67,8 +67,8 @@ class MemoryFileUpdateRequest(BaseModel):
     mode: Literal["overwrite", "append"] = "overwrite"
 
 
-class FlushRequest(BaseModel):
-    """手动触发记忆刷盘请求体。"""
+class CompressionRequest(BaseModel):
+    """手动触发记忆压缩请求体。"""
 
     user_id: str = Field(..., min_length=1)
     employee_id: str = Field(default="1", min_length=1)
@@ -144,4 +144,6 @@ class SettingsUpdateRequest(BaseModel):
         if text not in TOKENIZER_MODEL_OPTIONS:
             raise ValueError(f"tokenizer_model 仅支持: {', '.join(TOKENIZER_MODEL_OPTIONS)}")
         return text
+
+
 
