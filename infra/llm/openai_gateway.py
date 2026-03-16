@@ -115,6 +115,7 @@ class OpenAIGateway(LLMGatewayPort):
         max_tool_rounds: int,
         on_event: EventCallback | None = None,
         refresh_system_message: SystemMessageRefresher | None = None,
+        allow_hidden_memory_files: bool = False,
     ) -> LLMRunResult:
         """执行一次可带工具循环的 LLM 调用。"""
         # working_messages 会在每轮中追加 assistant/tool 消息，
@@ -297,6 +298,7 @@ class OpenAIGateway(LLMGatewayPort):
                         on_event=on_event,
                         tool_events=tool_events,
                         refresh_system_message=refresh_system_message,
+                        allow_hidden_memory_files=allow_hidden_memory_files,
                     )
                     continue
 

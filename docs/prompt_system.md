@@ -96,7 +96,7 @@ prompts/
 | `chat.xml` | `SOUL_NOTEBOOK_PROMPT` | `soul.md` |
 | `chat.xml` | `WORKBOOK_NOTEBOOK_PROMPT` | `workbook.md` |
 | `chat.xml` | `SCHEDULE_NOTEBOOK_PROMPT` | `schedule.md` |
-| `chat.xml` | `MEMORY_PROMPT` | `memory.md` |
+| `chat.xml` | `MEMORY_PROMPT` | `.memory.md` |
 | `compression.xml` | `TOOLS_PROMPT` | `tools_base_prompt.md` 注入 `TOOL_DEFINITIONS` |
 | `compression.xml` | `ARCHIVE_TASK_PROMPT` | `compression_base_prompt.md` |
 | `image_generation.xml` | `BASE_PROMPT` | `image_generation_base_prompt.md` |
@@ -122,7 +122,8 @@ prompts/
    - `ARCHIVE_TASK_PROMPT` 来自 `compression_base_prompt.md`
    - `TOOLS_PROMPT` 来自 `tools_base_prompt.md`（含可用工具定义）
 2. 将旧 `dialogue` 区拼接为一段文本，作为归档 `user` 消息输入。
-3. 用归档消息触发 `chat.completions`：先读取旧 `memory.md`，再覆盖写回新的 `memory.md`，最后输出压缩摘要。
+3. 用归档消息触发 `chat.completions`：读取当前 `.memory.md`，以 `mode=overwrite` 覆盖写回更新后的 `.memory.md`，最后输出压缩摘要。
+4. 压缩记忆文件仅支持 `.memory.md`；系统不提供 `memory.md` 的兼容读取或自动迁移。
 
 ### 6.3 文生图
 
@@ -137,4 +138,5 @@ prompts/
 3. 新增类型时依次新增模板、片段、`compose_*` 函数。
 4. 占位符统一格式：`{{VARIABLE_NAME}}`。
 5. 模板渲染统一经 `render_prompt_template(...)`，禁止绕过渲染器手工拼接。
+
 

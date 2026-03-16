@@ -159,6 +159,7 @@ class LLMGatewayPort(Protocol):
         max_tool_rounds: int,
         on_event: EventCallback | None = None,
         refresh_system_message: SystemMessageRefresher | None = None,
+        allow_hidden_memory_files: bool = False,
     ) -> LLMRunResult:
         """执行 LLM 对话并在需要时处理工具调用。"""
         ...

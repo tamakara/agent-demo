@@ -19,7 +19,7 @@
 记忆模块负责以下四件事：
 
 1. 管理会话级消息分区（`dialogue` / `buffer` / `resident_recent`）
-2. 管理员工级长期记忆文件（`memory.md`、`notebook/*.md`）
+2. 管理员工级长期记忆文件（`.memory.md`、`notebook/*.md`）
 3. 在每轮对话前构建“可控预算”的 system memory 上下文
 4. 在阈值触发或手动触发时执行压缩归档
 
@@ -108,7 +108,7 @@ erDiagram
 
 ```text
 data/user/<user_id>/employee/<employee_id>/
-├── memory.md
+├── .memory.md
 ├── notebook/
 │   ├── soul.md
 │   ├── schedule.md
@@ -122,9 +122,10 @@ data/user/<user_id>/employee/<employee_id>/
 
 由 `domain/chat/memory_files.py` 定义：
 
-- `memory.md` -> `employee/<id>/memory.md`
+- `.memory.md` -> `employee/<id>/.memory.md`
 - `soul.md` / `schedule.md` / `workbook.md` / `file.md` -> `employee/<id>/notebook/*.md`
 - 未知 `*.md` 默认落在 `notebook/`
+- 不提供 `memory.md` 兼容读取或自动迁移；压缩记忆文件名固定为 `.memory.md`
 
 ### 4.3 初始化与重置
 
@@ -195,7 +196,7 @@ sequenceDiagram
     end
 
     MCS->>PR: compose resident system + trim recent/active
-    PR->>FS: read memory.md/soul.md/schedule.md/workbook.md
+    PR->>FS: read .memory.md/soul.md/schedule.md/workbook.md
     MCS->>LLM: run_with_tools(messages)
 
     loop tool rounds
@@ -218,7 +219,7 @@ sequenceDiagram
 
 `PromptComposer.compose_resident_system_text(...)` 会做三件事：
 
-1. 读取四个记忆文件：`memory.md`、`soul.md`、`schedule.md`、`workbook.md`
+1. 读取四个记忆文件：`.memory.md`、`soul.md`、`schedule.md`、`workbook.md`
 2. 结合工具 schema、窗口预算，渲染 `chat.xml` 的记忆区块
 3. 将 `workbench_summary` 按 `summary_limit` 裁剪后拼到 system 末尾
 
@@ -292,7 +293,7 @@ flowchart TD
     C --> D["read old dialogue rows"]
     D --> E["build archive prompt(compression.xml: archive+tools)"]
     E --> F{"dialogue empty?"}
-    F -- no --> G["LLM: read old memory.md -> write new memory.md(overwrite)"]
+    F -- no --> G["LLM: read .memory.md -> overwrite .memory.md"]
     F -- yes --> H["summary='无新增对话'"]
     G --> I["summary_text"]
     H --> I
@@ -312,7 +313,7 @@ flowchart TD
 
 1. 归档输入使用“旧 `dialogue` 全量文本”（含工具消息内容）。
 2. 归档 system 由 `compression.xml` 构建，并同时注入 `compression_base_prompt.md` 与 `tools_base_prompt.md`（含工具定义），用于辅助模型熟悉可用工具；不注入 `chat.xml` 常驻内容。
-3. 压缩任务提示词要求先读取旧 `memory.md`，再将提炼后的完整新内容以 `mode=overwrite` 写回 `memory.md`。
+3. 压缩任务提示词要求读取当前 `.memory.md`，再将提炼后的完整新内容以 `mode=overwrite` 写回 `.memory.md`。
 4. 回填 `resident_recent` 时只保留 `role in {user, assistant}` 且 `message_kind=chat` 的近期消息。
 5. 压缩期间产生的 `buffer` 会完整迁回 `dialogue`，包括 `tool_call/tool_result`。
 6. 任何异常都会在 `except` 中回收 `is_compressing=false`，避免会话长期卡死。
@@ -375,6 +376,7 @@ WHERE user_id = ? AND session_id = ?;
 1. 检查 `is_compressing` 是否长期为 `1`
 2. 检查 `buffer` token 是否接近 `buffer_limit`
 3. 检查 `workbench_summary` 是否被刷新
-4. 检查员工目录下 `memory.md` 与 `notebook/*.md` 是否有预期写入
+4. 检查员工目录下 `.memory.md` 与 `notebook/*.md` 是否有预期写入
 5. 检查 SSE 是否输出 `memory_status` 与 `compression_scheduled` 事件
+
 

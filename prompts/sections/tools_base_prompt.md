@@ -28,7 +28,7 @@
 工具：`read_memory_file`
 
 - 适用：用户要求查看、核对、引用记忆内容，或写入前需要读取上下文。
-- `file_name` 优先使用：`memory.md`、`soul.md`、`schedule.md`、`workbook.md`。
+- `file_name` 优先使用：`soul.md`、`schedule.md`、`workbook.md`。
 
 工具：`write_memory_file`
 

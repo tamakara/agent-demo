@@ -127,6 +127,7 @@ async def process_tool_calls(
     on_event: EventCallback | None,
     tool_events: list[dict[str, Any]],
     refresh_system_message: SystemMessageRefresher | None,
+    allow_hidden_memory_files: bool,
 ) -> None:
     """依次执行模型返回的工具调用并回填工具结果消息。"""
     for tool_call_index, tool_call in enumerate(normalized_tool_calls):
@@ -204,6 +205,7 @@ async def process_tool_calls(
                 user_id=user_id,
                 employee_id=employee_id,
                 llm_config=llm_config,
+                allow_hidden_memory_files=allow_hidden_memory_files,
             )
             payload_result: dict[str, Any] = {"result": tool_result}
         except Exception as exc:  # noqa: BLE001

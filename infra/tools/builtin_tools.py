@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from app.ports.repositories import ClockPort, MemoryFileRepositoryPort
 from common.errors import ValidationError
+from domain.chat.memory_files import COMPRESSED_MEMORY_FILE
 from domain.models import LLMConfig
 from infra.tools.image_tool import ImageToolService
 
@@ -38,6 +39,25 @@ class BuiltinToolRunner:
             raise ValidationError("mode 只能是 'append' 或 'overwrite'")
         return cast(str, mode)
 
+    @staticmethod
+    def _assert_memory_file_access(
+        file_name: str,
+        *,
+        allow_hidden_memory_files: bool,
+        is_write: bool,
+        mode: str = "",
+    ) -> None:
+        """校验记忆文件访问权限，默认禁止点开头隐藏文件。"""
+        normalized_name = str(file_name or "").strip()
+        if not normalized_name.startswith("."):
+            return
+        if normalized_name != COMPRESSED_MEMORY_FILE:
+            raise ValidationError("隐藏记忆文件不可访问")
+        if not allow_hidden_memory_files:
+            raise ValidationError("当前场景不允许读取或写入隐藏记忆文件")
+        if is_write and mode != "overwrite":
+            raise ValidationError("隐藏记忆文件仅支持覆盖写入")
+
     async def execute(
         self,
         tool_name: str,
@@ -46,24 +66,39 @@ class BuiltinToolRunner:
         user_id: str,
         employee_id: str,
         llm_config: LLMConfig | None = None,
+        allow_hidden_memory_files: bool = False,
     ) -> str:
         """根据工具名分发执行内置工具。"""
         normalized_tool_name = str(tool_name).strip()
 
         if normalized_tool_name == "read_memory_file":
+            file_name = self._string_arg(arguments, "file_name")
+            self._assert_memory_file_access(
+                file_name,
+                allow_hidden_memory_files=allow_hidden_memory_files,
+                is_write=False,
+            )
             return await self.memory_repo.read_memory_file(
                 user_id=user_id,
                 employee_id=employee_id,
-                file_name=self._string_arg(arguments, "file_name"),
+                file_name=file_name,
             )
 
         if normalized_tool_name == "write_memory_file":
+            file_name = self._string_arg(arguments, "file_name")
+            mode = self._mode_arg(arguments, "mode", "append")
+            self._assert_memory_file_access(
+                file_name,
+                allow_hidden_memory_files=allow_hidden_memory_files,
+                is_write=True,
+                mode=mode,
+            )
             return await self.memory_repo.write_memory_file(
                 user_id=user_id,
                 employee_id=employee_id,
-                file_name=self._string_arg(arguments, "file_name"),
+                file_name=file_name,
                 content=self._string_arg(arguments, "content"),
-                mode=self._mode_arg(arguments, "mode", "append"),
+                mode=mode,
             )
 
         if normalized_tool_name == "get_current_time":

@@ -78,7 +78,7 @@ def user_employee_skills_dir(user_id: str, employee_id: str) -> Path:
 
 
 def user_employee_memory_file(user_id: str, employee_id: str = EMPLOYEE_ONE) -> Path:
-    """返回指定员工的压缩记忆文件路径（memory.md）。"""
+    """返回指定员工的压缩记忆文件路径（.memory.md）。"""
     return user_employee_member_dir(user_id, employee_id) / COMPRESSED_MEMORY_FILE
 
 

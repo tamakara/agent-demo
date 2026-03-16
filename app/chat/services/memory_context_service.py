@@ -396,6 +396,7 @@ class MemoryContextService:
                 max_tool_rounds=max_tool_rounds,
                 on_event=collect_tool_event,
                 refresh_system_message=refresh_system_message,
+                allow_hidden_memory_files=False,
             )
 
             session_after = await self.session_repo.get_session(user_id, session_id)
@@ -522,6 +523,7 @@ class MemoryContextService:
                     messages=archive_messages,
                     llm_config=llm_config,
                     max_tool_rounds=max_tool_rounds,
+                    allow_hidden_memory_files=True,
                 )
                 summary_text = archive_result.assistant_text.strip() or summary_text
 
