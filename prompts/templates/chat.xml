@@ -1,0 +1,22 @@
+<system_prompt>
+    <base>
+        {{BASE_PROMPT}}
+    </base>
+    <tools>
+        {{TOOLS_PROMPT}}
+    </tools>
+    <notebook>
+        <soul>
+            {{SOUL_NOTEBOOK_PROMPT}}
+        </soul>
+        <workbook>
+            {{WORKBOOK_NOTEBOOK_PROMPT}}
+        </workbook>
+        <schedule>
+            {{SCHEDULE_NOTEBOOK_PROMPT}}
+        </schedule>
+    </notebook>
+    <memory>
+        {{MEMORY_PROMPT}}
+    </memory>
+</system_prompt>

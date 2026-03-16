@@ -6,15 +6,16 @@
 
 1. [architecture.md](architecture.md)：系统目标与总体结构
 2. [layering.md](layering.md)：分层依赖与端口-适配器规则
-3. [api_reference.md](api_reference.md)：HTTP 接口契约
-4. [sse_protocol.md](sse_protocol.md)：流式事件协议
-5. [data_model.md](data_model.md)：数据库与文件结构
-6. [session_window_and_flush.md](session_window_and_flush.md)：会话窗口与刷盘状态机
-7. [token_calculation.md](token_calculation.md)：token 预算与计数实现细节
-8. [multi_user.md](multi_user.md)：多用户隔离规则
-9. [frontend_guide.md](frontend_guide.md)：前端接入与状态管理
-10. [core_modules.md](core_modules.md)：模块职责清单
-11. [image_tooling.md](image_tooling.md)：文生图工具与素材流转
+3. [prompt_structure.md](prompt_structure.md)：提示词模板结构、注入映射与调用链路
+4. [api_reference.md](api_reference.md)：HTTP 接口契约
+5. [sse_protocol.md](sse_protocol.md)：流式事件协议
+6. [data_model.md](data_model.md)：数据库与文件结构
+7. [session_window_and_flush.md](session_window_and_flush.md)：会话窗口与刷盘状态机
+8. [token_calculation.md](token_calculation.md)：token 预算与计数实现细节
+9. [multi_user.md](multi_user.md)：多用户隔离规则
+10. [frontend_guide.md](frontend_guide.md)：前端接入与状态管理
+11. [core_modules.md](core_modules.md)：模块职责清单
+12. [image_tooling.md](image_tooling.md)：文生图工具与素材流转
 
 ## 文档边界说明
 

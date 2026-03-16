@@ -1,0 +1,8 @@
+<image_generation_prompt>
+    <base>
+        {{BASE_PROMPT}}
+    </base>
+    <user_request>
+        {{USER_PROMPT}}
+    </user_request>
+</image_generation_prompt>

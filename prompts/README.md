@@ -10,18 +10,18 @@
 ## 调用类型与入口
 
 1. 数字员工会话（chat.completions）
-- 模板：`templates/chat_system.md`
-- 片段：`sections/chat_system_base.md`、`sections/tool_calling.md`、`sections/image_tool_calling.md`
+- 模板：`templates/chat.xml`
+- 片段：`sections/chat_base_prompt.md`、`sections/tools_base_prompt.md`
 - 动态注入：窗口预算、工具清单、记忆文件、工作台摘要
 
 2. 归档刷盘（chat.completions）
-- 模板：`templates/flush_archive_system.md`
-- 片段：`sections/flush_archive.md`
+- 模板：`templates/compression.xml`
+- 片段：`sections/compression_base_prompt.md`
 - 动态注入：会话常驻 system 文本
 
 3. 画图模型（images.generate）
-- 模板：`templates/image_generation.md`
-- 片段：`sections/image_generation_base.md`
+- 模板：`templates/image_generation.xml`
+- 片段：`sections/image_generation_base_prompt.md`
 - 动态注入：用户原始画图需求
 
 ## 占位符规则

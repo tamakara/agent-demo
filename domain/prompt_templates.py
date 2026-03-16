@@ -11,14 +11,14 @@ PROMPTS_DIR = PROJECT_ROOT / "prompts"
 PROMPT_TEMPLATES_DIR = PROMPTS_DIR / "templates"
 PROMPT_SECTIONS_DIR = PROMPTS_DIR / "sections"
 
-CHAT_SYSTEM_TEMPLATE_FILE = "chat_system.md"
-FLUSH_ARCHIVE_SYSTEM_TEMPLATE_FILE = "flush_archive_system.md"
-IMAGE_GENERATION_TEMPLATE_FILE = "image_generation.md"
+CHAT_TEMPLATE_FILE = "chat.xml"
+COMPRESSION_TEMPLATE_FILE = "compression.xml"
+IMAGE_GENERATION_TEMPLATE_FILE = "image_generation.xml"
 
-CHAT_SYSTEM_BASE_FILE = "chat_system_base.md"
-TOOLS_PROMPT_FILE = "tools_prompt.md"
-FLUSH_ARCHIVE_FILE = "flush_archive.md"
-IMAGE_GENERATION_BASE_FILE = "image_generation_base.md"
+CHAT_BASE_PROMPT_FILE = "chat_base_prompt.md"
+TOOLS_BASE_PROMPT_FILE = "tools_base_prompt.md"
+COMPRESSION_BASE_PROMPT_FILE = "compression_base_prompt.md"
+IMAGE_GENERATION_BASE_PROMPT_FILE = "image_generation_base_prompt.md"
 
 
 def _read_prompt_file(path: Path) -> str:
@@ -55,22 +55,29 @@ def compose_chat_system_prompt(
 ) -> str:
     """构建数字员工聊天场景的 system 提示词。"""
     tools_prompt = render_prompt_template(
-        _read_section_file(TOOLS_PROMPT_FILE),
+        _read_section_file(TOOLS_BASE_PROMPT_FILE),
         {
             "TOOL_DEFINITIONS": str(tool_definitions or "").strip(),
         },
     ).strip()
+    base_prompt = "\n\n".join(
+        part
+        for part in (
+            str(window_preamble or "").strip(),
+            _read_section_file(CHAT_BASE_PROMPT_FILE).strip(),
+        )
+        if part
+    ).strip()
 
     return render_prompt_template(
-        _read_template_file(CHAT_SYSTEM_TEMPLATE_FILE),
+        _read_template_file(CHAT_TEMPLATE_FILE),
         {
-            "WINDOW_PREAMBLE": str(window_preamble or "").strip(),
-            "BASE_SYSTEM_PROMPT": _read_section_file(CHAT_SYSTEM_BASE_FILE).strip(),
+            "BASE_PROMPT": base_prompt,
             "TOOLS_PROMPT": str(tools_prompt or "").strip(),
-            "MEMORY_PERSONA": str(memory_persona or "").strip(),
-            "MEMORY_SCHEDULE": str(memory_schedule or "").strip(),
-            "MEMORY_WORKBOOK": str(memory_workbook or "").strip(),
-            "MEMORY_CORE": str(memory_core or "").strip(),
+            "SOUL_NOTEBOOK_PROMPT": str(memory_persona or "").strip(),
+            "SCHEDULE_NOTEBOOK_PROMPT": str(memory_schedule or "").strip(),
+            "WORKBOOK_NOTEBOOK_PROMPT": str(memory_workbook or "").strip(),
+            "MEMORY_PROMPT": str(memory_core or "").strip(),
         },
     )
 
@@ -78,10 +85,10 @@ def compose_chat_system_prompt(
 def compose_flush_archive_system_prompt(*, resident_base_system: str) -> str:
     """构建刷盘归档场景的 system 提示词。"""
     return render_prompt_template(
-        _read_template_file(FLUSH_ARCHIVE_SYSTEM_TEMPLATE_FILE),
+        _read_template_file(COMPRESSION_TEMPLATE_FILE),
         {
-            "BASE_SYSTEM_PROMPT": str(resident_base_system or "").strip(),
-            "FLUSH_ARCHIVE_PROMPT": _read_section_file(FLUSH_ARCHIVE_FILE).strip(),
+            "BASE_PROMPT": str(resident_base_system or "").strip(),
+            "ARCHIVE_TASK_PROMPT": _read_section_file(COMPRESSION_BASE_PROMPT_FILE).strip(),
         },
     )
 
@@ -91,7 +98,7 @@ def compose_image_generation_prompt(*, user_prompt: str) -> str:
     return render_prompt_template(
         _read_template_file(IMAGE_GENERATION_TEMPLATE_FILE),
         {
-            "IMAGE_PROMPT_BASE": _read_section_file(IMAGE_GENERATION_BASE_FILE).strip(),
+            "BASE_PROMPT": _read_section_file(IMAGE_GENERATION_BASE_PROMPT_FILE).strip(),
             "USER_PROMPT": str(user_prompt or "").strip(),
         },
     )
