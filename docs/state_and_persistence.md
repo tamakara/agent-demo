@@ -126,6 +126,7 @@ data/user/<user_id>/employee/<employee_id>/
 - `soul.md` / `schedule.md` / `workbook.md` / `file.md` -> `employee/<id>/notebook/*.md`
 - 未知 `*.md` 默认落在 `notebook/`
 - 不提供 `memory.md` 兼容读取或自动迁移；压缩记忆文件名固定为 `.memory.md`
+- `/storage/tree` 会展示 `employee/<id>/.memory.md`，并可通过 `GET|PUT /storage/file-content` 查看和编辑
 
 ### 4.3 初始化与重置
 

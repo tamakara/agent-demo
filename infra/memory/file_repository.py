@@ -193,7 +193,7 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         existing: set[str] = set()
 
         memory_file = user_employee_memory_file(user_id, employee_id)
-        if memory_file.exists() and memory_file.is_file() and not is_hidden_memory_file_name(COMPRESSED_MEMORY_FILE):
+        if memory_file.exists() and memory_file.is_file():
             existing.add(COMPRESSED_MEMORY_FILE)
 
         notebook_dir = user_employee_notebook_dir(user_id, employee_id)
@@ -265,6 +265,9 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             workspace_root = user_employee_workspace_dir(user_id, member_id)
 
             append_entry(member_prefix, is_dir=True)
+            memory_file = user_employee_memory_file(user_id, member_id)
+            if memory_file.exists() and memory_file.is_file():
+                append_entry(f"{member_prefix}/{COMPRESSED_MEMORY_FILE}", is_dir=False)
 
             append_entry(f"{member_prefix}/notebook", is_dir=True)
             append_direct_files(notebook_root, f"{member_prefix}/notebook")
@@ -299,8 +302,8 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
                 raise ValidationError("employee 数据路径必须形如 /employee/{employee_id}/<file>")
             resolved_employee_id = normalize_employee_id(path_parts[1])
             tail_parts = path_parts[2:]
-            if self._contains_hidden_path_part(tail_parts):
-                raise ValidationError("隐藏文件不可通过存储接口直接访问")
+            if self._contains_hidden_path_part(tail_parts) and tail_parts != [COMPRESSED_MEMORY_FILE]:
+                raise ValidationError("仅允许访问员工目录下的 .memory.md 隐藏文件")
             self._ensure_user_scaffold(user_id, resolved_employee_id)
             base_dir = user_employee_member_dir(user_id, resolved_employee_id).resolve()
         elif root_name == "brand_library":
