@@ -36,6 +36,7 @@ from .storage_layout import (
 
 WriteMode = Literal["append", "overwrite"]
 AccessMode = Literal["read", "write", "delete"]
+AccessScope = Literal["employee", "user"]
 
 
 EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
@@ -295,9 +296,8 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         return sorted(ids, key=lambda item: int(item))
 
     def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
-        """列出用户目录三层结构，用于前端目录展示。"""
+        """列出用户目录三层结构，用于前端用户级文件管理展示。"""
         self._ensure_user_root_dirs(user_id)
-        current_employee_id = normalize_employee_id(employee_id)
         brand_root = user_brand_library_dir(user_id)
         skill_root = user_skill_library_dir(user_id)
         employee_root = user_employee_dir(user_id)
@@ -336,24 +336,23 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             # 用户级目录树需要展示全部 employee/{id} 子目录。
             self._ensure_user_scaffold(user_id, member_id)
             member_prefix = f"employee/{member_id}"
-            is_owner = member_id == current_employee_id
             notebook_root = user_employee_notebook_dir(user_id, member_id)
             skills_root = user_employee_skills_dir(user_id, member_id)
             workspace_root = user_employee_workspace_dir(user_id, member_id)
             memory_file = user_employee_memory_file(user_id, member_id)
 
-            append_entry(member_prefix, is_dir=True, can_write=is_owner)
+            append_entry(member_prefix, is_dir=True, can_write=True)
             append_entry(f"{member_prefix}/.memory", is_dir=True, can_write=False)
             if memory_file.exists() and memory_file.is_file():
-                append_entry(f"{member_prefix}/.memory/{COMPRESSED_MEMORY_FILE}", is_dir=False, can_write=is_owner)
-            append_entry(f"{member_prefix}/notebook", is_dir=True, can_write=is_owner)
-            append_direct_files(notebook_root, f"{member_prefix}/notebook", can_write=is_owner)
+                append_entry(f"{member_prefix}/.memory/{COMPRESSED_MEMORY_FILE}", is_dir=False, can_write=True)
+            append_entry(f"{member_prefix}/notebook", is_dir=True, can_write=True)
+            append_direct_files(notebook_root, f"{member_prefix}/notebook", can_write=True)
 
-            append_entry(f"{member_prefix}/skills", is_dir=True, can_write=is_owner)
-            append_direct_files(skills_root, f"{member_prefix}/skills", can_write=is_owner)
+            append_entry(f"{member_prefix}/skills", is_dir=True, can_write=True)
+            append_direct_files(skills_root, f"{member_prefix}/skills", can_write=True)
 
-            append_entry(f"{member_prefix}/workspace", is_dir=True, can_write=is_owner)
-            append_direct_files(workspace_root, f"{member_prefix}/workspace", can_write=is_owner)
+            append_entry(f"{member_prefix}/workspace", is_dir=True, can_write=True)
+            append_direct_files(workspace_root, f"{member_prefix}/workspace", can_write=True)
 
         append_entry("skill_library", is_dir=True, can_write=True)
         append_direct_files(skill_root, "skill_library", can_write=True)
@@ -365,9 +364,17 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         return "."
 
     @staticmethod
-    def _assert_employee_directory_access(*, actor_employee_id: str, target_employee_id: str, access_mode: AccessMode) -> None:
+    def _assert_employee_directory_access(
+        *,
+        actor_employee_id: str,
+        target_employee_id: str,
+        access_mode: AccessMode,
+        access_scope: AccessScope,
+    ) -> None:
         """校验员工目录访问权限：本员工可写，其他员工只读。"""
         if access_mode == "read":
+            return
+        if access_scope == "user":
             return
         if actor_employee_id != target_employee_id:
             raise ValidationError("仅允许修改当前员工目录；其他员工目录仅支持查看")
@@ -375,14 +382,22 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
     def resolve_data_file_path(
         self,
         user_id: str,
-        employee_id: str = EMPLOYEE_ONE,
         data_path: str = "",
         *,
+        employee_id: str = EMPLOYEE_ONE,
         access_mode: AccessMode = "read",
+        access_scope: AccessScope = "employee",
     ) -> str:
         """将目录树路径解析为真实绝对文件路径。"""
-        resolved_actor_employee_id = normalize_employee_id(employee_id)
-        self._ensure_user_scaffold(user_id, resolved_actor_employee_id)
+        if access_scope not in {"employee", "user"}:
+            raise ValidationError("access_scope 仅支持 'employee' 或 'user'")
+        if access_scope == "employee":
+            resolved_actor_employee_id = normalize_employee_id(employee_id)
+            self._ensure_user_scaffold(user_id, resolved_actor_employee_id)
+        else:
+            # 用户级存储管理不依赖当前选中员工，仅确保用户根目录存在。
+            resolved_actor_employee_id = EMPLOYEE_ONE
+            self._ensure_user_root_dirs(user_id)
         normalized_tree_path = self._normalize_tree_path(data_path)
         path_parts = [part for part in normalized_tree_path.split("/") if part]
         if not path_parts:
@@ -401,6 +416,7 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
                 actor_employee_id=resolved_actor_employee_id,
                 target_employee_id=resolved_employee_id,
                 access_mode=access_mode,
+                access_scope=access_scope,
             )
             self._ensure_user_scaffold(user_id, resolved_employee_id)
             base_dir = user_employee_member_dir(user_id, resolved_employee_id).resolve()

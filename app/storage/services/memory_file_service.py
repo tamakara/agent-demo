@@ -39,21 +39,30 @@ class MemoryFileService:
             )
         return files
 
-    def list_data_paths(self, user_id: str, employee_id: str) -> list[dict[str, object]]:
-        """列出员工数据目录树。"""
-        return self.memory_repo.list_employee_data_paths(user_id, employee_id)
+    def list_data_paths(self, user_id: str) -> list[dict[str, object]]:
+        """列出用户数据目录树。"""
+        return self.memory_repo.list_employee_data_paths(user_id)
 
-    def data_root(self, user_id: str, employee_id: str) -> str:
-        """返回员工数据目录根路径（相对 user 数据根）。"""
-        return self.memory_repo.employee_data_root(user_id, employee_id)
+    def data_root(self, user_id: str) -> str:
+        """返回用户数据目录根路径（相对 user 数据根）。"""
+        return self.memory_repo.employee_data_root(user_id)
 
-    def resolve_data_file_path(self, user_id: str, employee_id: str, data_path: str, *, access_mode: str = "read") -> str:
+    def resolve_data_file_path(
+        self,
+        user_id: str,
+        data_path: str,
+        *,
+        employee_id: str = "1",
+        access_mode: str = "read",
+        access_scope: str = "employee",
+    ) -> str:
         """根据目录树路径解析数据文件绝对路径，并校验读写权限。"""
         return self.memory_repo.resolve_data_file_path(
             user_id,
-            employee_id,
             data_path,
+            employee_id=employee_id,
             access_mode=access_mode,
+            access_scope=access_scope,
         )
 
     async def reset_files(self, user_id: str, employee_id: str) -> tuple[list[str], list[MemoryFileEntry]]:

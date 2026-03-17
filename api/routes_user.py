@@ -78,10 +78,7 @@ def create_user_router(container: AppContainer) -> APIRouter:
                         "employee": asdict(recreated),
                         "employees": [asdict(item) for item in employees],
                         "files": [asdict(item) for item in files],
-                        "tree": container.memory_file_service.list_data_paths(
-                            normalized_user_id,
-                            normalized_employee_id,
-                        ),
+                        "tree": container.memory_file_service.list_data_paths(normalized_user_id),
                     },
                 )
             )
@@ -201,4 +198,3 @@ def create_user_router(container: AppContainer) -> APIRouter:
             raise raise_http(exc, request_id) from exc
 
     return router
-

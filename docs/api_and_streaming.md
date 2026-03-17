@@ -14,7 +14,7 @@
 
 1. 路由无统一前缀（不使用 `/api`、`/v1`）。
 2. 路由按模块前缀组织：`/user/*`、`/chat/*`、`/storage/*`。
-3. `user_id`、`employee_id` 通过 query 或 body 传递。
+3. `user_id` 通过 query 或 body 传递；`employee_id` 仅在员工/聊天相关接口中传递，`/storage/*` 为用户级文件管理接口。
 
 统一成功响应：
 
@@ -83,12 +83,12 @@
 
 ### 3.3 Storage
 
-- `GET /storage/tree?user_id=...&employee_id=...`
-- `GET /storage/file-content?user_id=...&employee_id=...&path=...`
-- `PUT /storage/file-content?user_id=...&employee_id=...&path=...`
-- `GET /storage/file-preview?user_id=...&employee_id=...&path=...`
-- `DELETE /storage/file?user_id=...&employee_id=...&path=...`
-- `POST /storage/brand-library/upload?user_id=...&employee_id=...`（`multipart/form-data`）
+- `GET /storage/tree?user_id=...`
+- `GET /storage/file-content?user_id=...&path=...`
+- `PUT /storage/file-content?user_id=...&path=...`
+- `GET /storage/file-preview?user_id=...&path=...`
+- `DELETE /storage/file?user_id=...&path=...`
+- `POST /storage/brand-library/upload?user_id=...`（`multipart/form-data`）
 
 `path` 统一为相对用户数据根目录的路径，例如：
 

@@ -114,12 +114,12 @@ class MemoryFileRepositoryPort(Protocol):
         """列出指定数字员工记忆文件名。"""
         ...
 
-    def list_employee_data_paths(self, user_id: str, employee_id: str) -> list[dict[str, Any]]:
-        """列出员工目录树（相对路径 + 是否目录）。"""
+    def list_employee_data_paths(self, user_id: str, employee_id: str = "1") -> list[dict[str, Any]]:
+        """列出用户目录树（相对路径 + 是否目录）。"""
         ...
 
-    def employee_data_root(self, user_id: str, employee_id: str) -> str:
-        """返回员工数据目录根路径（相对 user 数据根）。"""
+    def employee_data_root(self, user_id: str, employee_id: str = "1") -> str:
+        """返回用户数据目录根路径（相对 user 数据根）。"""
         ...
 
     def memory_relative_path(self, file_name: str) -> str:
@@ -129,10 +129,11 @@ class MemoryFileRepositoryPort(Protocol):
     def resolve_data_file_path(
         self,
         user_id: str,
-        employee_id: str,
-        data_path: str,
+        data_path: str = "",
         *,
+        employee_id: str = "1",
         access_mode: str = "read",
+        access_scope: str = "employee",
     ) -> str:
         """根据目录树路径解析真实数据文件绝对路径，并校验读写权限。"""
         ...

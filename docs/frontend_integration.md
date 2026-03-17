@@ -31,9 +31,9 @@
 
 - User：`/user/settings`、`/user/employees`、`/user/employee-messages`
 - Chat：`/chat/stream`、`/chat/memory/status`、`/chat/memory/compression`
-- Storage：`/storage/tree`、`/storage/file-content`、`/storage/file-preview`、`/storage/file`、`/storage/brand-library/upload`（均携带 `employee_id`）
+- Storage：`/storage/tree`、`/storage/file-content`、`/storage/file-preview`、`/storage/file`、`/storage/brand-library/upload`（用户级接口，仅需 `user_id`）
 
-说明：`/storage/tree` 会返回 `.memory` 目录与 `.memory/memory.md` 文件，可在前端查看与编辑；写权限仍受当前 `employee_id` 约束。
+说明：`/storage/tree` 会返回 `.memory` 目录与 `.memory/memory.md` 文件，可在前端查看与编辑；存储管理为用户级能力，不依赖当前选中员工。
 
 ## 4. SSE 解析策略
 

@@ -139,7 +139,8 @@ data/user/<user_id>/employee/<employee_id>/
 - `.memory` 目录会出现在 `/storage/tree`，且允许通过 `GET|PUT /storage/file-content` 查看与编辑 `employee/<id>/.memory/memory.md`
 - `memory.md` 在工具链中仅允许压缩流程读写（`allow_hidden_memory_files=True`），随后注入聊天 system 提示词
 - `storage` 模块所有 `path` 参数都以用户数据目录为根，使用相对路径（例如 `employee/1/notebook/soul.md`）
-- 目录权限：当前员工可写 `employee/<当前id>/...`；其他员工目录仅支持读取查看
+- Storage API 目录权限：用户级文件管理，不依赖当前选中员工；可按路径编辑任意 `employee/<id>/...` 文件。
+- 工具链目录权限：数字员工工具调用仍遵循“当前员工可写，其他员工只读”。
 
 ### 4.3 初始化与重置
 
@@ -359,7 +360,7 @@ flowchart TD
 
 ### 9.2 Storage/User 路由
 
-- `GET /storage/tree?user_id=...&employee_id=...` / `GET|PUT /storage/file-content?user_id=...&employee_id=...`：按当前员工权限查看与编辑可见记忆文件（`notebook/*.md`）
+- `GET /storage/tree?user_id=...` / `GET|PUT /storage/file-content?user_id=...`：用户级查看与编辑目录树文件（不依赖当前选中员工）。
 - `POST /user/employees/{employee_id}/reset`：删除员工数据后重建记忆模板
 
 ## 10. 并发一致性与保护机制
