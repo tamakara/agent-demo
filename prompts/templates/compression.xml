@@ -1,0 +1,8 @@
+﻿<compression_prompt>
+    <base>
+        {{BASE_PROMPT}}
+    </base>
+    <tools>
+        {{TOOLS_PROMPT}}
+    </tools>
+</compression_prompt>

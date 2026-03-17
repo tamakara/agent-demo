@@ -1,0 +1,139 @@
+﻿"""领域层核心数据模型定义。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass(slots=True)
+class GlobalSettings:
+    """用户级全局设置。"""
+    user_id: str
+    model: str
+    api_key: str
+    base_url: str | None
+    max_tool_rounds: int
+    total_token_limit: int
+    tokenizer_model: str
+
+
+@dataclass(slots=True, frozen=True)
+class LLMConfig:
+    """单次 LLM 调用配置（复用 GlobalSettings）。"""
+
+    settings: GlobalSettings
+
+    @classmethod
+    def from_global_settings(cls, settings: GlobalSettings) -> LLMConfig:
+        """基于用户全局配置构建 LLM 调用配置。"""
+        return cls(settings=settings)
+
+    @property
+    def model(self) -> str:
+        """当前模型名称。"""
+        return self.settings.model
+
+    @property
+    def api_key(self) -> str:
+        """当前 API Key。"""
+        return self.settings.api_key
+
+    @property
+    def base_url(self) -> str | None:
+        """当前 API Base URL。"""
+        return self.settings.base_url
+
+    @property
+    def total_token_limit(self) -> int:
+        """总 token 限制。"""
+        return int(self.settings.total_token_limit)
+
+    @property
+    def tokenizer_model(self) -> str:
+        """tokenizer 模型。"""
+        return self.settings.tokenizer_model
+
+    @property
+    def max_tool_rounds(self) -> int:
+        """工具调用最大轮次。"""
+        return int(self.settings.max_tool_rounds)
+
+
+@dataclass(slots=True)
+class EmployeeEntry:
+    """数字员工列表条目。"""
+    user_id: str
+    employee_id: str
+    session_id: str
+    is_compressing: bool
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+@dataclass(slots=True)
+class EmployeeMessage:
+    """数字员工消息条目。"""
+    id: int
+    user_id: str
+    employee_id: str
+    session_id: str
+    role: str
+    message_kind: str
+    content: str
+    zone: str
+    created_at: str
+
+
+@dataclass(slots=True)
+class ChatProcessResult:
+    """聊天处理结果。"""
+    assistant_text: str
+    tool_events: list[dict[str, Any]]
+    usage: dict[str, Any] | None
+    status: MemoryStatus
+    compression_scheduled: bool
+
+
+@dataclass(slots=True)
+class LLMRunResult:
+    """LLM 执行结果。"""
+    assistant_text: str
+    tool_events: list[dict[str, Any]]
+    usage: dict[str, Any] | None
+    working_messages: list[dict[str, Any]]
+    reached_tool_limit: bool = False
+
+
+@dataclass(slots=True)
+class MemoryFileEntry:
+    """记忆文件条目。"""
+    file_name: str
+    relative_path: str
+    content: str
+
+
+@dataclass(slots=True)
+class MemoryStatus:
+    """数字员工记忆状态。"""
+    user_id: str
+    employee_id: str
+    session_id: str
+    total_tokens: int
+    resident_tokens: int
+    dialogue_tokens: int
+    buffer_tokens: int
+    is_compressing: bool
+    thresholds: dict[str, int]
+
+
+@dataclass(slots=True)
+class CompressionResult:
+    """手动压缩结果。"""
+    accepted: bool
+    user_id: str
+    employee_id: str
+    session_id: str
+    is_compressing: bool
+

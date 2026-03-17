@@ -1,0 +1,84 @@
+﻿"""API 层依赖装配与应用容器构建。"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from app.chat.services.memory_context_service import MemoryContextService
+from app.chat.use_cases.chat_stream_use_case import ChatStreamUseCase
+from app.chat.use_cases.compression_use_case import CompressionUseCase
+from app.chat.use_cases.memory_status_use_case import MemoryStatusUseCase
+from app.storage.services.memory_file_service import MemoryFileService
+from app.user.services.employee_service import EmployeeService
+from app.user.services.settings_service import SettingsService
+from infra.llm.kimi_tokenizer_counter import KimiTokenizerCounter
+from infra.llm.openai_gateway import OpenAIGateway
+from infra.memory.file_repository import FileMemoryRepository
+from infra.tools.builtin_tools import BuiltinToolRunner
+from infra.tools.clock import SystemClock
+from infra.tools.schema_provider import ToolSchemaProvider
+from infra.sqlite.repository import SQLiteRepository
+
+
+@dataclass(slots=True)
+class AppContainer:
+    """应用启动后共享的依赖容器。"""
+    sqlite_repo: SQLiteRepository
+    memory_file_repo: FileMemoryRepository
+    chat_stream_use_case: ChatStreamUseCase
+    compression_use_case: CompressionUseCase
+    memory_status_use_case: MemoryStatusUseCase
+    employee_service: EmployeeService
+    settings_service: SettingsService
+    memory_file_service: MemoryFileService
+
+
+async def build_container() -> AppContainer:
+    """构建并初始化 API 层运行所需的全部依赖。"""
+    # 先初始化持久化层，避免上层服务在首次请求时触发冷启动开销。
+    sqlite_repo = SQLiteRepository()
+    await sqlite_repo.initialize()
+
+    # 组装工具链和 LLM 网关。
+    memory_file_repo = FileMemoryRepository()
+    clock = SystemClock()
+    token_counter = KimiTokenizerCounter()
+    tool_runner = BuiltinToolRunner(
+        memory_repo=memory_file_repo,
+        clock=clock,
+        token_counter=token_counter,
+    )
+    tool_schema_provider = ToolSchemaProvider()
+    llm_gateway = OpenAIGateway(tool_runner=tool_runner)
+
+    # 记忆上下文服务聚合核心读写策略，供多个用例复用。
+    memory_context = MemoryContextService(
+        session_repo=sqlite_repo,
+        message_repo=sqlite_repo,
+        settings_repo=sqlite_repo,
+        memory_repo=memory_file_repo,
+        llm_gateway=llm_gateway,
+        token_counter=token_counter,
+        tool_schema_provider=tool_schema_provider,
+    )
+
+    # 组装应用层用例与外部服务门面。
+    chat_stream_use_case = ChatStreamUseCase(memory_context)
+    compression_use_case = CompressionUseCase(memory_context)
+    memory_status_use_case = MemoryStatusUseCase(memory_context)
+
+    employee_service = EmployeeService(session_repo=sqlite_repo, message_repo=sqlite_repo)
+    settings_service = SettingsService(settings_repo=sqlite_repo)
+    memory_file_service = MemoryFileService(memory_repo=memory_file_repo)
+
+    return AppContainer(
+        sqlite_repo=sqlite_repo,
+        memory_file_repo=memory_file_repo,
+        chat_stream_use_case=chat_stream_use_case,
+        compression_use_case=compression_use_case,
+        memory_status_use_case=memory_status_use_case,
+        employee_service=employee_service,
+        settings_service=settings_service,
+        memory_file_service=memory_file_service,
+    )
+

@@ -20,6 +20,5 @@ RUN mkdir -p /app/data && chown -R app:app /app
 USER app
 
 EXPOSE 80
-VOLUME ["/app/data"]
 
 CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]

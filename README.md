@@ -1,156 +1,109 @@
-# agent-demo
+﻿# agent-demo
 
-一个基于 **FastAPI + OpenAI 兼容接口** 的长上下文记忆模块演示项目，用于测试并可视化验证 **200K token 窗口** 下的会话记忆管理能力。
+一个基于 FastAPI 的多用户记忆智能体演示项目，当前版本重点是：
 
-## 1. 项目亮点
+1. 根目录分层结构（`api / app / domain / infra / common`）
+2. 三模块组织（`chat / user / storage`）
+3. 端口-适配器设计（Ports & Adapters）
+4. 统一 API JSON Envelope + SSE Envelope
+5. 数字员工级 token 预算与自动/手动压缩
 
-- 200K 上下文窗口分区（常驻区 40K + 对话区 160K）
-- 超阈值自动异步刷盘（`BackgroundTasks`）
-- 原生工具调用（不依赖 LangChain）
-- 内置当前时间工具（`get_current_time`），支持时间敏感问答
-- 后端无 `.env`：模型配置以全局单例存储在 SQLite，并在请求时透传
-- 可视化前端：配置面板、token 仪表盘、聊天区、记忆文件编辑器
-
-## 2. 技术栈
-
-- Python 3.12（建议）
-- FastAPI
-- Uvicorn
-- Pydantic
-- httpx（通过 OpenAI 兼容 Chat Completions 接口调用）
-- tiktoken
-- aiofiles
-- SQLite
-
-## 3. 目录结构
+## 1. 目录结构
 
 ```text
 agent-demo/
 ├── main.py
 ├── run.py
 ├── requirements.txt
-├── core/
-│   ├── agent.py
-│   ├── db.py
-│   ├── memory_manager.py
-│   ├── models.py
-│   └── tools.py
-├── data/
-│   ├── agent_state.db        # 首次启动自动创建
-│   └── memory/               # 首次启动自动创建
-├── static/
-└── docs/
+├── api/        # 路由装配 + chat/user/storage 子路由
+├── app/        # chat/user/storage 应用服务与用例
+├── domain/     # 领域规则（提示词、预算、协议、模型）
+├── infra/      # chat/user/storage 基础设施适配器
+├── common/     # 错误、响应封装、ID/时间工具
+├── prompts/    # 提示词目录（templates + sections，按调用类型维护）
+├── static/     # 前端页面
+└── docs/       # 分文件文档（按专题独立维护）
 ```
 
-## 4. 快速开始
+## 2. 核心能力
 
-## 4.1 安装依赖
+- 多用户隔离（`user_id`）
+- 数字员工管理（创建、列表、历史消息）
+- 员工级会话隔离（每个员工绑定唯一 `session_id`）
+- 流式聊天（`POST /chat/stream`，SSE）
+- 工具调用（读写记忆文件、获取系统时间）
+- 员工记忆文件管理（读取、覆盖、重置）
+- token 分区统计与压缩（自动 + 手动）
+
+## 3. 运行方式
+
+### 3.1 安装依赖
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-## 4.2 启动项目
+### 3.2 启动服务
 
 ```bash
 python run.py
 ```
 
-启动后访问：
+默认地址：
 
-- 前端页面：`http://127.0.0.1`
-- OpenAPI 文档：`http://127.0.0.1/docs`
+- 前端：`http://127.0.0.1`
+- OpenAPI：`http://127.0.0.1/docs`
 
-首次运行时会自动初始化运行数据：
+## 4. API 与协议约定
 
-1. 创建 `data/agent_state.db`
-2. 创建 `data/memory/`
-3. 将 `core/tools.py` 中内置的初始记忆内容写入 `data/memory/*.md`（仅写入缺失文件）
+- 无路径前缀：不使用 `/api`、`/v1`
+- 资源路径采用三模块组织：
+1. `user`：`/user/...`
+2. `chat`：`/chat/...`
+3. `storage`：`/storage/...`
+- `user_id` / `employee_id` 通过 query 或 body 提供，不再固定在路径中
 
-如果需要清空全部运行数据，直接删除 `data/` 文件夹即可，下次启动会自动重新初始化。
+统一 JSON 响应：
 
-## 4.3 前端使用步骤
-
-1. 在对话区选择或新建 `session id`。
-2. 在“LLM 配置”面板确认或修改 `model name / api key / base url / max tool rounds`（已预置默认值）。
-3. 点击“保存配置”，配置会写入全局 SQLite 配置表（与 `session id` 无关）。
-4. 在聊天输入框发送消息，观察工具调用日志和模型回复。
-5. 在“记忆文件”区域查看并编辑各 `.md` 文件（含 `系统提示词.md`）。
-6. 观察“token 仪表盘”中常驻区、对话区、缓冲区变化。
-7. 如需立即归档，点击“手动刷盘”。
-
-## 5. 核心机制
-
-## 5.1 上下文分区
-
-- 总容量：`200000` token
-- 常驻区：系统提示词 + 记忆文件 + 工作台摘要 + 最近 6 轮
-- 对话区：本轮会话与工具交互
-- 缓冲区：刷盘期间的新增消息
-
-## 5.2 异步刷盘
-
-当总 token 数达到阈值（默认 `200000`）时，系统会：
-
-1. 标记会话刷盘中
-2. 将对话区内容交给模型归档
-3. 通过工具写入长期记忆文件
-4. 生成新的工作台摘要
-5. 清理对话区并保留最近 6 轮
-
-## 5.3 系统提示词文件化
-
-- 全局底层规则存放于：`data/memory/系统提示词.md`
-- 聊天流程与刷盘流程共同读取该文件
-- 该文件仅允许人工接口编辑，工具调用禁止写入
-
-## 5.4 素材库记忆占位策略
-
-- `data/memory/素材库记忆.md` 保留为占位文件
-- 默认不加载进常驻区
-- 是否调用由系统提示词规则约束（默认不主动调用）
-
-## 6. API 速览
-
-- `POST /api/chat`：SSE 聊天接口（含工具调用事件）
-- `GET /api/llm-config`：读取全局 LLM 配置
-- `PUT /api/llm-config`：保存全局 LLM 配置
-- `GET /api/session-messages`：按会话读取 SQLite 历史消息
-- `GET /api/memory/status`：查询会话 token 分区与刷盘状态
-- `GET /api/memory/files`：读取全部记忆文件
-- `POST /api/memory/reset`：重置 memory 目录并按内置初始内容覆盖
-- `PUT /api/memory/files/{file_name}`：人工编辑记忆文件
-- `POST /api/memory/flush`：手动触发刷盘
-
-详细参数请查看：`docs/api_reference.md`
-
-## 7. 文档索引
-
-- 架构说明：`docs/architecture.md`
-- 接口文档：`docs/api_reference.md`
-- 核心模块：`docs/core_modules.md`
-- 前端说明：`docs/frontend_guide.md`
-
-## 8. 常见问题
-
-## 8.1 启动时报缺少依赖
-
-请先执行：
-
-```bash
-python -m pip install -r requirements.txt
+```json
+{
+  "request_id": "...",
+  "ts": "...",
+  "data": {}
+}
 ```
 
-## 8.2 为什么后端没有 `.env`
+统一 SSE 事件包：
 
-这是刻意设计：后端保持无状态，模型参数由前端每次请求透传，便于切换供应商与模型。
+```json
+{
+  "type": "assistant_final",
+  "seq": 10,
+  "request_id": "...",
+  "ts": "...",
+  "employee_id": "1",
+  "session_id": "employee-1",
+  "payload": {}
+}
+```
 
-## 8.3 为什么 `系统提示词.md` 不能被工具改写
+## 5. 关键接口
 
-为了防止模型自我漂移，避免底层规则被自动覆盖。该文件仅允许人工接口编辑。
+- `GET /user/employees?user_id=...`：列出用户数字员工
+- `POST /user/employees`：创建新数字员工（body 携带 `user_id`）
+- `GET /user/employee-messages?user_id=...&employee_id=...`：读取指定员工历史消息
+- `POST /chat/stream`：流式对话（body 携带 `user_id`、`employee_id`、`message`）
+- `GET /storage/tree?user_id=...&employee_id=...`：返回用户数据目录树与可编辑记忆文件（`path` 采用相对用户数据根路径）
 
-## 9. 开发建议
+## 6. 文档入口
 
-- 先阅读 `docs/architecture.md` 再修改核心逻辑
-- 修改工具行为时同步更新 `docs/core_modules.md`
-- 修改接口字段时同步更新 `docs/api_reference.md` 与前端 `static/app.js`
+文档已重构为高内聚文档集，见：
+
+- [docs/README.md](docs/README.md)
+- [docs/system_design.md](docs/system_design.md)
+- [docs/state_and_persistence.md](docs/state_and_persistence.md)
+- [docs/api_and_streaming.md](docs/api_and_streaming.md)
+- [docs/prompt_system.md](docs/prompt_system.md)
+- [docs/frontend_integration.md](docs/frontend_integration.md)
+- [docs/image_pipeline.md](docs/image_pipeline.md)
+
