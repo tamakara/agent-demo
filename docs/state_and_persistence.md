@@ -121,14 +121,23 @@ data/user/<user_id>/employee/<employee_id>/
 
 ### 4.2 文件映射规则
 
-由 `domain/chat/memory_files.py` 定义：
+由 `domain/chat/memory_files.py` 的 `MANAGED_MEMORY_FILE_SPECS` 作为单一事实源定义（包含相对路径、token 比例）：
 
-- `memory.md` -> `employee/<id>/.memory/memory.md`
-- `soul.md` / `schedule.md` / `workbook.md` / `file.md` -> `employee/<id>/notebook/*.md`
+| file_name | 员工目录相对路径 | token 上限（占 `total_token_limit`） |
+|---|---|---|
+| `memory.md` | `.memory/memory.md` | 5% |
+| `file.md` | `notebook/file.md` | 1% |
+| `schedule.md` | `notebook/schedule.md` | 1% |
+| `soul.md` | `notebook/soul.md` | 1% |
+| `workbook.md` | `notebook/workbook.md` | 1% |
+
+- 受管记忆文件总预算由 `MANAGED_MEMORY_FILES_RATIO` 自动汇总（5% + 1% + 1% + 1% + 1% = 9%）
+- 固定提示词预算由 `SYSTEM_PROMPT_FIXED_RATIO` 表示（1%，仅用于预算说明，不做硬拦截）
+- `SYSTEM_PROMPT_LIMIT_RATIO = MANAGED_MEMORY_FILES_RATIO + SYSTEM_PROMPT_FIXED_RATIO = 10%`
 - 未知 `*.md` 默认落在 `notebook/`
 - 不兼容历史 `.memory.md` 单文件布局，也不做自动迁移
 - `.memory` 目录会出现在 `/storage/tree`，且允许通过 `GET|PUT /storage/file-content` 查看与编辑 `employee/<id>/.memory/memory.md`
-- `memory.md` 仅在记忆压缩流程中读写，随后注入聊天 system 提示词
+- `memory.md` 在工具链中仅允许压缩流程读写（`allow_hidden_memory_files=True`），随后注入聊天 system 提示词
 - `storage` 模块所有 `path` 参数都以用户数据目录为根，使用相对路径（例如 `employee/1/notebook/soul.md`）
 - 目录权限：当前员工可写 `employee/<当前id>/...`；其他员工目录仅支持读取查看
 
@@ -144,7 +153,7 @@ data/user/<user_id>/employee/<employee_id>/
 
 预算来自 `WindowThresholds.from_total_limit(...)`：
 
-- `system_prompt_limit` = 10%
+- `system_prompt_limit` = 10%（受管记忆文件 9% + 固定提示词 1%）
 - `summary_limit` = 1%
 - `recent_raw_limit` = 9%
 - `dialogue_limit` = 剩余 80%
@@ -156,6 +165,8 @@ data/user/<user_id>/employee/<employee_id>/
 ```text
 normalized_total = max(20000, total_token_limit)
 system_prompt_limit = floor(normalized_total * 10%)
+# 其中 9% 供受管记忆文件（memory.md/file.md/schedule.md/soul.md/workbook.md）
+# 其中 1% 供固定提示词（base + chat 模板固定内容，不做硬拦截）
 summary_limit       = floor(normalized_total * 1%)
 recent_raw_limit    = floor(normalized_total * 9%)
 resident_limit      = system_prompt_limit + summary_limit + recent_raw_limit
@@ -201,7 +212,7 @@ sequenceDiagram
     end
 
     MCS->>PR: compose resident system + trim recent/active
-    PR->>FS: read memory.md + soul/schedule/workbook
+    PR->>FS: read memory.md + file/soul/schedule/workbook
     MCS->>LLM: run_with_tools(messages)
 
     loop tool rounds
@@ -224,7 +235,7 @@ sequenceDiagram
 
 `PromptComposer.compose_resident_system_text(...)` 会做三件事：
 
-1. 读取四个记忆文件：`memory.md`、`soul.md`、`schedule.md`、`workbook.md`
+1. 读取五个记忆文件：`memory.md`、`file.md`、`soul.md`、`schedule.md`、`workbook.md`
 2. 结合工具 schema、窗口预算，渲染 `chat.xml` 的记忆区块
 3. 将 `workbench_summary` 按 `summary_limit` 裁剪后拼到 system 末尾
 
@@ -319,9 +330,20 @@ flowchart TD
 1. 归档输入使用“旧 `dialogue` 全量文本”（含工具消息内容）。
 2. 归档 system 由 `compression.xml` 构建，并同时注入 `compression_base_prompt.md` 与 `tools_base_prompt.md`（含工具定义），用于辅助模型熟悉可用工具；不注入 `chat.xml` 常驻内容。
 3. 压缩任务提示词要求读取当前 `memory.md`，再将提炼后的完整新内容以 `mode=overwrite` 写回 `memory.md`。
-4. 回填 `resident_recent` 时只保留 `role in {user, assistant}` 且 `message_kind=chat` 的近期消息。
-5. 压缩期间产生的 `buffer` 会完整迁回 `dialogue`，包括 `tool_call/tool_result`。
-6. 任何异常都会在 `except` 中回收 `is_compressing=false`，避免会话长期卡死。
+4. 受管记忆文件 token 限制按 `total_token_limit` 比例统一在 `write_memory_file` 工具写入时执行：
+   - `.memory/memory.md`：5%
+   - `notebook/file.md`：1%
+   - `notebook/schedule.md`：1%
+   - `notebook/soul.md`：1%
+   - `notebook/workbook.md`：1%
+   - 以上比例以 `domain/chat/memory_files.py` 为唯一配置源
+5. 受管记忆文件通常可通过 `mode=append` 增量更新；token 校验按写入后的最终文件内容执行。
+6. system_prompt 预算中的固定提示词 1%（base + chat 模板固定内容）不做硬性限制与拦截。
+7. 记忆文件大小限制仅在 `write_memory_file` 工具路径执行；不在其它链路做额外拦截。
+8. 若受管记忆文件写入超限会报错，Agent 必须先读原文并继续压缩，再以 `mode=overwrite` 整体写回。
+9. 回填 `resident_recent` 时只保留 `role in {user, assistant}` 且 `message_kind=chat` 的近期消息。
+10. 压缩期间产生的 `buffer` 会完整迁回 `dialogue`，包括 `tool_call/tool_result`。
+11. 任何异常都会在 `except` 中回收 `is_compressing=false`，避免会话长期卡死。
 
 ## 9. 对外入口（与记忆强相关）
 

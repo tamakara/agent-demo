@@ -19,6 +19,7 @@ from app.ports.repositories import (
     UserSettingsRepositoryPort,
 )
 from common.errors import ValidationError
+from domain.chat.memory_files import COMPRESSED_MEMORY_FILE, memory_file_token_limit
 from domain.models import ChatProcessResult, LLMConfig, MemoryStatus
 from domain.prompt_composer import PromptComposer
 from domain.prompt_templates import compose_compression_system_prompt
@@ -175,6 +176,12 @@ class MemoryContextService:
             read_memory_file=self.memory_repo.read_memory_file,
             tool_schemas=self._list_tool_schemas(),
         )
+
+    @classmethod
+    def _compression_memory_token_limit(cls, thresholds: WindowThresholds) -> int:
+        """计算压缩记忆文件 token 上限。"""
+        limit = memory_file_token_limit(COMPRESSED_MEMORY_FILE, thresholds.total_limit)
+        return max(1, int(limit or 1))
 
     async def _build_chat_messages(
         self,
@@ -509,11 +516,16 @@ class MemoryContextService:
                 tool_defs_text = self.prompt_composer.render_tool_definitions_from_schema(
                     self._list_tool_schemas()
                 )
+                memory_token_limit = self._compression_memory_token_limit(thresholds)
                 # 对话非空时调用 LLM 执行归档总结，并允许工具写入记忆文件。
                 archive_messages = [
                     {
                         "role": "system",
-                        "content": compose_compression_system_prompt(tool_definitions=tool_defs_text),
+                        "content": compose_compression_system_prompt(
+                            tool_definitions=tool_defs_text,
+                            memory_file_path=f"employee/{employee_id}/.memory/{COMPRESSED_MEMORY_FILE}",
+                            memory_token_limit=memory_token_limit,
+                        ),
                     },
                     {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
                 ]

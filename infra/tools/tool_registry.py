@@ -11,13 +11,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_memory_file",
-            "description": "读取当前数字员工隔离目录中的 Markdown 记忆文件。",
+            "description": "读取当前数字员工目录中的 Markdown 记忆文件（含 notebook/*.md 与 .memory/memory.md）。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_name": {
                         "type": "string",
-                        "description": "目标记忆文件名，例如：soul.md、schedule.md、workbook.md",
+                        "description": "目标记忆文件名，例如：memory.md、file.md、soul.md、schedule.md、workbook.md",
                     }
                 },
                 "required": ["file_name"],
@@ -29,13 +29,18 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "write_memory_file",
-            "description": "向当前数字员工隔离目录中的记忆文件写入文本，支持追加或覆盖。",
+            "description": (
+                "向当前数字员工记忆文件写入文本。"
+                "受管记忆文件（memory.md/file.md/soul.md/schedule.md/workbook.md）"
+                "默认可 append 或 overwrite；若写入后超过 total_token_limit 比例限制会报错，"
+                "需压缩后用 overwrite 整体写回。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "file_name": {
                         "type": "string",
-                        "description": "目标记忆文件名，例如：soul.md、schedule.md、workbook.md",
+                        "description": "目标记忆文件名，例如：memory.md、file.md、soul.md、schedule.md、workbook.md",
                     },
                     "content": {
                         "type": "string",
@@ -44,7 +49,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     "mode": {
                         "type": "string",
                         "enum": ["append", "overwrite"],
-                        "description": "append 表示追加写入，overwrite 表示覆盖写入。",
+                        "description": (
+                            "append 表示追加写入，overwrite 表示覆盖写入。"
+                            "受管记忆文件超限时应压缩并改用 overwrite。"
+                        ),
                     },
                 },
                 "required": ["file_name", "content"],

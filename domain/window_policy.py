@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from domain.chat.memory_files import SYSTEM_PROMPT_LIMIT_RATIO
+
 
 DEFAULT_TOTAL_LIMIT = 200_000
 MIN_TOTAL_LIMIT = 20_000
-SYSTEM_PROMPT_PERCENT = 10
+SYSTEM_PROMPT_PERCENT = int(round(SYSTEM_PROMPT_LIMIT_RATIO * 100))
 SUMMARY_PERCENT = 1
 RECENT_RAW_PERCENT = 9
 

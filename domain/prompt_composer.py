@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from domain.chat.memory_files import (
+    ASSET_PLACEHOLDER_FILE,
     COMPRESSED_MEMORY_FILE,
     PERSONA_FILE,
     SCHEDULE_FILE,
@@ -112,7 +113,7 @@ class PromptComposer:
         tool_defs_text = self.render_tool_definitions_from_schema(tool_schemas or [])
 
         memory_entries: dict[str, str] = {}
-        for file_name in (COMPRESSED_MEMORY_FILE, PERSONA_FILE, SCHEDULE_FILE, WORKBOOK_FILE):
+        for file_name in (COMPRESSED_MEMORY_FILE, ASSET_PLACEHOLDER_FILE, PERSONA_FILE, SCHEDULE_FILE, WORKBOOK_FILE):
             try:
                 content = await read_memory_file(
                     user_id=user_id,
@@ -128,6 +129,7 @@ class PromptComposer:
             window_preamble=self._system_preamble(thresholds),
             tool_definitions=tool_defs_text.strip(),
             memory_core=self._normalize_memory_text(memory_entries.get(COMPRESSED_MEMORY_FILE, "")),
+            memory_file=self._normalize_memory_text(memory_entries.get(ASSET_PLACEHOLDER_FILE, "")),
             memory_persona=self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
             memory_schedule=self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
             memory_workbook=self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),

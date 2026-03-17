@@ -11,7 +11,6 @@ import aiofiles
 from app.ports.repositories import MemoryFileRepositoryPort
 from common.errors import NotFoundError, ValidationError
 from common.ids import normalize_employee_id
-from domain.chat.memory_files import is_hidden_memory_file_name
 
 from .storage_layout import (
     ASSET_PLACEHOLDER_FILE,
@@ -69,6 +68,7 @@ EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
 }
 
 PREFERRED_FILE_ORDER = [
+    COMPRESSED_MEMORY_FILE,
     PERSONA_FILE,
     SCHEDULE_FILE,
     WORKBOOK_FILE,
@@ -106,11 +106,6 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         user_root.mkdir(parents=True, exist_ok=True)
         for sub_dir in [employee_root, brand_dir, skill_dir]:
             sub_dir.mkdir(parents=True, exist_ok=True)
-
-    @staticmethod
-    def _contains_hidden_path_part(path_parts: list[str]) -> bool:
-        """判断路径分段是否包含点开头隐藏名称。"""
-        return any(part.startswith(".") for part in path_parts if part)
 
     def _ensure_user_scaffold(self, user_id: str, employee_id: str) -> None:
         """确保用户目录骨架与指定员工目录存在。"""
@@ -202,8 +197,8 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
 
         notebook_dir = user_employee_notebook_dir(user_id, employee_id)
         if notebook_dir.exists():
-            for file_path in notebook_dir.glob("*.md"):
-                if file_path.is_file() and not is_hidden_memory_file_name(file_path.name):
+            for file_path in notebook_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() == ".md":
                     existing.add(file_path.name)
 
         existing_sorted = sorted(existing, key=lambda x: x.lower())
@@ -256,8 +251,6 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             if not base_dir.exists():
                 return
             for file_path in sorted(base_dir.iterdir(), key=lambda p: p.name.lower()):
-                if file_path.name.startswith("."):
-                    continue
                 if suffixes is not None and file_path.suffix.lower() not in suffixes:
                     continue
                 if file_path.is_file():
@@ -330,9 +323,8 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
                 raise ValidationError("employee 数据路径必须形如 employee/{employee_id}/<file>")
             resolved_employee_id = normalize_employee_id(path_parts[1])
             tail_parts = path_parts[2:]
-            allow_hidden_memory_file = tail_parts == [".memory", COMPRESSED_MEMORY_FILE]
-            if self._contains_hidden_path_part(tail_parts) and not allow_hidden_memory_file:
-                raise ValidationError("员工隐藏目录仅允许访问 .memory/memory.md")
+            if tail_parts and tail_parts[0] == ".memory" and tail_parts != [".memory", COMPRESSED_MEMORY_FILE]:
+                raise ValidationError("员工目录仅允许访问 .memory/memory.md")
             self._assert_employee_directory_access(
                 actor_employee_id=resolved_actor_employee_id,
                 target_employee_id=resolved_employee_id,
@@ -341,12 +333,8 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
             self._ensure_user_scaffold(user_id, resolved_employee_id)
             base_dir = user_employee_member_dir(user_id, resolved_employee_id).resolve()
         elif root_name == "brand_library":
-            if self._contains_hidden_path_part(tail_parts):
-                raise ValidationError("隐藏文件不可通过存储接口直接访问")
             base_dir = user_brand_library_dir(user_id).resolve()
         elif root_name == "skill_library":
-            if self._contains_hidden_path_part(tail_parts):
-                raise ValidationError("隐藏文件不可通过存储接口直接访问")
             base_dir = user_skill_library_dir(user_id).resolve()
         else:
             raise ValidationError(f"不支持的数据目录：/{root_name}")

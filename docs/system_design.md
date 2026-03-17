@@ -90,9 +90,10 @@ common: 可被所有层复用
 
 1. `api/routes_chat.py` 接收 `POST /chat/stream`。
 2. `app/chat/use_cases/chat_stream_use_case.py` 编排请求。
-3. `app/chat/services/memory_context_service.py` 读取上下文并调用领域规则。
-4. `infra/llm/openai_gateway.py` 执行模型调用与工具循环。
-5. 结果通过 SSE envelope 回传前端。
+3. 路由层先读取 `GlobalSettings`，并通过 `LLMConfig.from_global_settings(...)` 复用用户配置构建单次调用配置。
+4. `app/chat/services/memory_context_service.py` 读取上下文并调用领域规则。
+5. `infra/llm/openai_gateway.py` 执行模型调用与工具循环。
+6. 结果通过 SSE envelope 回传前端。
 
 ### 6.2 压缩链路
 

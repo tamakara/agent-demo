@@ -40,8 +40,8 @@ def create_chat_router(container: AppContainer) -> APIRouter:
 
         await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
         settings = await container.settings_service.get_settings(normalized_user_id)
-        llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
-        max_tool_rounds = FIXED_MAX_TOOL_ROUNDS
+        llm_config = LLMConfig.from_global_settings(settings)
+        max_tool_rounds = llm_config.max_tool_rounds or FIXED_MAX_TOOL_ROUNDS
 
         async def event_stream() -> AsyncIterator[str]:
             builder = SSEEnvelopeBuilder(
@@ -201,8 +201,8 @@ def create_chat_router(container: AppContainer) -> APIRouter:
             await container.memory_file_service.ensure_employee_files(normalized_user_id, normalized_employee_id)
 
             settings = await container.settings_service.get_settings(normalized_user_id)
-            llm_config = LLMConfig(model=settings.model, api_key=settings.api_key, base_url=settings.base_url)
-            max_tool_rounds = FIXED_MAX_TOOL_ROUNDS
+            llm_config = LLMConfig.from_global_settings(settings)
+            max_tool_rounds = llm_config.max_tool_rounds or FIXED_MAX_TOOL_ROUNDS
 
             accepted = await container.compression_use_case.try_start_manual_compression(
                 user_id=normalized_user_id,

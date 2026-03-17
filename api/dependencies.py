@@ -42,10 +42,14 @@ async def build_container() -> AppContainer:
     # 组装工具链和 LLM 网关。
     memory_file_repo = FileMemoryRepository()
     clock = SystemClock()
-    tool_runner = BuiltinToolRunner(memory_repo=memory_file_repo, clock=clock)
+    token_counter = KimiTokenizerCounter()
+    tool_runner = BuiltinToolRunner(
+        memory_repo=memory_file_repo,
+        clock=clock,
+        token_counter=token_counter,
+    )
     tool_schema_provider = ToolSchemaProvider()
     llm_gateway = OpenAIGateway(tool_runner=tool_runner)
-    token_counter = KimiTokenizerCounter()
 
     # 记忆上下文服务聚合核心读写策略，供多个用例复用。
     memory_context = MemoryContextService(

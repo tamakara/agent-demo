@@ -7,14 +7,6 @@ from typing import Any
 
 
 @dataclass(slots=True)
-class LLMConfig:
-    """单次 LLM 调用配置。"""
-    model: str
-    api_key: str
-    base_url: str | None
-
-
-@dataclass(slots=True)
 class GlobalSettings:
     """用户级全局设置。"""
     user_id: str
@@ -24,6 +16,48 @@ class GlobalSettings:
     max_tool_rounds: int
     total_token_limit: int
     tokenizer_model: str
+
+
+@dataclass(slots=True, frozen=True)
+class LLMConfig:
+    """单次 LLM 调用配置（复用 GlobalSettings）。"""
+
+    settings: GlobalSettings
+
+    @classmethod
+    def from_global_settings(cls, settings: GlobalSettings) -> LLMConfig:
+        """基于用户全局配置构建 LLM 调用配置。"""
+        return cls(settings=settings)
+
+    @property
+    def model(self) -> str:
+        """当前模型名称。"""
+        return self.settings.model
+
+    @property
+    def api_key(self) -> str:
+        """当前 API Key。"""
+        return self.settings.api_key
+
+    @property
+    def base_url(self) -> str | None:
+        """当前 API Base URL。"""
+        return self.settings.base_url
+
+    @property
+    def total_token_limit(self) -> int:
+        """总 token 限制。"""
+        return int(self.settings.total_token_limit)
+
+    @property
+    def tokenizer_model(self) -> str:
+        """tokenizer 模型。"""
+        return self.settings.tokenizer_model
+
+    @property
+    def max_tool_rounds(self) -> int:
+        """工具调用最大轮次。"""
+        return int(self.settings.max_tool_rounds)
 
 
 @dataclass(slots=True)

@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
-from app.ports.repositories import ClockPort, MemoryFileRepositoryPort
-from common.errors import ValidationError
-from domain.chat.memory_files import COMPRESSED_MEMORY_FILE
+from app.ports.repositories import ClockPort, MemoryFileRepositoryPort, TokenCounterPort
+from common.errors import NotFoundError, ValidationError
+from domain.chat.memory_files import (
+    COMPRESSED_MEMORY_FILE,
+    managed_memory_file_spec,
+    memory_file_token_limit,
+)
 from domain.models import LLMConfig
 from infra.tools.image_tool import ImageToolService
 
@@ -19,11 +23,13 @@ class BuiltinToolRunner:
         self,
         memory_repo: MemoryFileRepositoryPort,
         clock: ClockPort,
+        token_counter: TokenCounterPort,
         image_tool: ImageToolService | None = None,
     ) -> None:
         """注入记忆文件仓储和时钟服务。"""
         self.memory_repo = memory_repo
         self.clock = clock
+        self.token_counter = token_counter
         self.image_tool = image_tool or ImageToolService()
 
     @staticmethod
@@ -44,19 +50,72 @@ class BuiltinToolRunner:
         file_name: str,
         *,
         allow_hidden_memory_files: bool,
-        is_write: bool,
-        mode: str = "",
     ) -> None:
-        """校验记忆文件访问权限，压缩记忆仅允许压缩流程覆盖写入。"""
+        """校验记忆文件访问权限。"""
         normalized_name = str(file_name or "").strip()
-        if normalized_name == COMPRESSED_MEMORY_FILE:
-            if not allow_hidden_memory_files:
-                raise ValidationError("当前场景不允许读取或写入压缩记忆文件")
-            if is_write and mode != "overwrite":
-                raise ValidationError("压缩记忆文件仅支持覆盖写入")
+        if normalized_name == COMPRESSED_MEMORY_FILE and not allow_hidden_memory_files:
+            raise ValidationError("当前场景不允许读取或写入压缩记忆文件")
+
+    @staticmethod
+    def _total_token_limit(llm_config: LLMConfig | None) -> int:
+        """返回当前总 token 限制。"""
+        total_limit = int(getattr(llm_config, "total_token_limit", 200000) or 200000)
+        return max(1, total_limit)
+
+    async def _assert_memory_file_token_limit(
+        self,
+        *,
+        file_name: str,
+        content: str,
+        mode: str,
+        llm_config: LLMConfig | None,
+    ) -> None:
+        """校验写入后的受管记忆文件大小是否超限。"""
+        spec = managed_memory_file_spec(file_name)
+        if spec is None:
             return
-        if normalized_name.startswith("."):
-            raise ValidationError("隐藏记忆文件不可访问")
+        token_limit = memory_file_token_limit(file_name, self._total_token_limit(llm_config))
+        if token_limit is None:
+            return
+        tokenizer_model = str(getattr(llm_config, "tokenizer_model", "kimi-k2.5") or "kimi-k2.5")
+        token_count = self.token_counter.count_tokens(content, tokenizer_model)
+        if token_count <= token_limit:
+            return
+        ratio_pct = int(spec.token_limit_ratio * 100)
+        action = "追加" if mode == "append" else "覆盖"
+        raise ValidationError(
+            f"{action}写入失败：{file_name} 超过大小限制。"
+            f"当前 {token_count} token，限制 {token_limit} token（total_token_limit 的 {ratio_pct}%）。"
+            "请读取原内容并压缩该记忆文件，再使用 mode='overwrite' 整体写回。"
+        )
+
+    async def _content_after_write(
+        self,
+        *,
+        user_id: str,
+        employee_id: str,
+        file_name: str,
+        content: str,
+        mode: str,
+    ) -> str:
+        """根据写入模式计算写入后的完整文件内容。"""
+        normalized_content = str(content or "")
+        if mode == "overwrite":
+            return normalized_content
+
+        try:
+            existing_content = await self.memory_repo.read_memory_file(
+                user_id=user_id,
+                employee_id=employee_id,
+                file_name=file_name,
+            )
+        except NotFoundError:
+            existing_content = ""
+
+        appended = normalized_content
+        if appended and not appended.endswith("\n"):
+            appended = f"{appended}\n"
+        return f"{existing_content}{appended}"
 
     async def execute(
         self,
@@ -76,7 +135,6 @@ class BuiltinToolRunner:
             self._assert_memory_file_access(
                 file_name,
                 allow_hidden_memory_files=allow_hidden_memory_files,
-                is_write=False,
             )
             return await self.memory_repo.read_memory_file(
                 user_id=user_id,
@@ -87,17 +145,32 @@ class BuiltinToolRunner:
         if normalized_tool_name == "write_memory_file":
             file_name = self._string_arg(arguments, "file_name")
             mode = self._mode_arg(arguments, "mode", "append")
+            normalized_name = str(file_name or "").strip()
             self._assert_memory_file_access(
                 file_name,
                 allow_hidden_memory_files=allow_hidden_memory_files,
-                is_write=True,
+            )
+            content = self._string_arg(arguments, "content")
+            resulting_content = content
+            if managed_memory_file_spec(normalized_name) is not None:
+                resulting_content = await self._content_after_write(
+                    user_id=user_id,
+                    employee_id=employee_id,
+                    file_name=normalized_name,
+                    content=content,
+                    mode=mode,
+                )
+            await self._assert_memory_file_token_limit(
+                file_name=normalized_name,
+                content=resulting_content,
                 mode=mode,
+                llm_config=llm_config,
             )
             return await self.memory_repo.write_memory_file(
                 user_id=user_id,
                 employee_id=employee_id,
                 file_name=file_name,
-                content=self._string_arg(arguments, "content"),
+                content=content,
                 mode=mode,
             )
 

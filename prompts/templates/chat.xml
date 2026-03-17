@@ -15,6 +15,9 @@
         <schedule>
             {{SCHEDULE_NOTEBOOK_PROMPT}}
         </schedule>
+        <file>
+            {{FILE_NOTEBOOK_PROMPT}}
+        </file>
     </notebook>
     <memory>
         {{MEMORY_PROMPT}}

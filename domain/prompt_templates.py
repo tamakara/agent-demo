@@ -59,6 +59,7 @@ def compose_chat_system_prompt(
     window_preamble: str,
     tool_definitions: str,
     memory_core: str,
+    memory_file: str,
     memory_persona: str,
     memory_schedule: str,
     memory_workbook: str,
@@ -79,6 +80,7 @@ def compose_chat_system_prompt(
         {
             "BASE_PROMPT": base_prompt,
             "TOOLS_PROMPT": str(tools_prompt or "").strip(),
+            "FILE_NOTEBOOK_PROMPT": str(memory_file or "").strip(),
             "SOUL_NOTEBOOK_PROMPT": str(memory_persona or "").strip(),
             "SCHEDULE_NOTEBOOK_PROMPT": str(memory_schedule or "").strip(),
             "WORKBOOK_NOTEBOOK_PROMPT": str(memory_workbook or "").strip(),
@@ -87,14 +89,22 @@ def compose_chat_system_prompt(
     )
 
 
-def compose_compression_system_prompt(*, tool_definitions: str) -> str:
+def compose_compression_system_prompt(
+    *,
+    tool_definitions: str,
+    memory_file_path: str = ".memory/memory.md",
+    memory_token_limit: int = 0,
+) -> str:
     """构建压缩归档场景的 system 提示词。"""
     tools_prompt = compose_tools_prompt(tool_definitions=tool_definitions)
+    normalized_limit = max(1, int(memory_token_limit))
     return render_prompt_template(
         _read_template_file(COMPRESSION_TEMPLATE_FILE),
         {
             "BASE_PROMPT": _read_section_file(COMPRESSION_BASE_PROMPT_FILE).strip(),
             "TOOLS_PROMPT": str(tools_prompt or "").strip(),
+            "MEMORY_FILE_PATH": str(memory_file_path or ".memory/memory.md").strip(),
+            "MEMORY_TOKEN_LIMIT": str(normalized_limit),
         },
     )
 
