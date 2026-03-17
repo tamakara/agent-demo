@@ -137,6 +137,26 @@ class MemoryFileRepositoryPort(Protocol):
         """根据目录树路径解析真实数据文件绝对路径，并校验读写权限。"""
         ...
 
+    def list_employee_visible_directory(
+        self,
+        user_id: str,
+        employee_id: str,
+        data_path: str = "/",
+    ) -> dict[str, Any]:
+        """按数字员工可见权限列出目录（隐藏其他员工与当前员工 ``.memory``）。"""
+        ...
+
+    def copy_library_file_to_workspace(
+        self,
+        user_id: str,
+        employee_id: str,
+        source_path: str,
+        *,
+        workspace_file_name: str = "",
+    ) -> dict[str, Any]:
+        """将 ``brand_library``/``skill_library`` 文件复制到当前员工 ``workspace``。"""
+        ...
+
     async def read_memory_file(self, *, user_id: str, employee_id: str, file_name: str) -> str:
         """读取指定数字员工记忆文件内容。"""
         ...

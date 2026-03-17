@@ -177,6 +177,23 @@ class BuiltinToolRunner:
         if normalized_tool_name == "get_current_time":
             return await self.clock.get_current_time()
 
+        if normalized_tool_name == "list_employee_visible_directory":
+            result = self.memory_repo.list_employee_visible_directory(
+                user_id=user_id,
+                employee_id=employee_id,
+                data_path=self._string_arg(arguments, "path", "/"),
+            )
+            return json.dumps(result, ensure_ascii=False)
+
+        if normalized_tool_name == "copy_library_file_to_workspace":
+            result = self.memory_repo.copy_library_file_to_workspace(
+                user_id=user_id,
+                employee_id=employee_id,
+                source_path=self._string_arg(arguments, "source_path"),
+                workspace_file_name=self._string_arg(arguments, "workspace_file_name", ""),
+            )
+            return json.dumps(result, ensure_ascii=False)
+
         if normalized_tool_name == "image_gen_edit":
             await self.memory_repo.ensure_memory_files_exist(user_id, employee_id)
             tool_result = await self.image_tool.generate_image_to_workspace(
@@ -192,13 +209,9 @@ class BuiltinToolRunner:
             return json.dumps(tool_result, ensure_ascii=False)
 
         if normalized_tool_name == "copy_workspace_image_to_brand_library":
-            await self.memory_repo.ensure_memory_files_exist(user_id, employee_id)
-            tool_result = self.image_tool.copy_workspace_image_to_brand_library(
-                user_id=user_id,
-                employee_id=employee_id,
-                workspace_file_name=self._string_arg(arguments, "workspace_file_name"),
-                brand_file_name=self._string_arg(arguments, "brand_file_name", ""),
+            raise ValidationError(
+                "brand_library 对数字员工为只读目录，不允许写入。"
+                "如需编辑库文件，请先调用 copy_library_file_to_workspace 复制到 workspace。"
             )
-            return json.dumps(tool_result, ensure_ascii=False)
 
         raise ValidationError(f"未知工具：{normalized_tool_name}")

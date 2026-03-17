@@ -75,11 +75,58 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "list_employee_visible_directory",
+            "description": (
+                "按当前数字员工权限列出目录内容。"
+                "根目录 path='/' 可查看 brand_library、employee、skill_library。"
+                "employee 下可查看所有员工目录，但只有当前员工目录 can_write=true。"
+                "所有 .memory 目录都会被隐藏。"
+                "brand_library 与 skill_library 对数字员工均为只读（can_write=false）。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要查看的目录路径；'/' 代表用户数据根目录。",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "copy_library_file_to_workspace",
+            "description": (
+                "将 brand_library 或 skill_library 中的文件复制到当前数字员工 workspace，"
+                "用于在 workspace 内继续编辑。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source_path": {
+                        "type": "string",
+                        "description": "源文件路径，仅支持 brand_library/... 或 skill_library/...",
+                    },
+                    "workspace_file_name": {
+                        "type": "string",
+                        "description": "目标文件名（可选，不传则沿用源文件名；重名时自动去重）。",
+                    },
+                },
+                "required": ["source_path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "image_gen_edit",
             "description": (
                 "使用 seedream-4-5 执行文生图，"
                 "图片会保存到当前数字员工的 employee/{employee_id}/workspace 目录。"
-                "若需要进入用户素材库，请继续调用 copy_workspace_image_to_brand_library。"
             ),
             "parameters": {
                 "type": "object",
@@ -108,28 +155,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                     },
                 },
                 "required": ["nameHint", "prompt"],
-                "additionalProperties": False,
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "copy_workspace_image_to_brand_library",
-            "description": "将 employee/{employee_id}/workspace 下的图片复制到用户 brand_library 目录。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "workspace_file_name": {
-                        "type": "string",
-                        "description": "workspace 中要复制的图片文件名。",
-                    },
-                    "brand_file_name": {
-                        "type": "string",
-                        "description": "brand_library 目标文件名，可选，不传则沿用源文件名。",
-                    },
-                },
-                "required": ["workspace_file_name"],
                 "additionalProperties": False,
             },
         },

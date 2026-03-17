@@ -74,8 +74,7 @@ PREFERRED_FILE_ORDER = [
     WORKBOOK_FILE,
     ASSET_PLACEHOLDER_FILE,
 ]
-VISIBLE_TEXT_SUFFIXES = {".md", ".txt"}
-VISIBLE_IMAGE_SUFFIXES = {".png", ".jpeg", ".jpg", ".webp"}
+VISIBLE_ROOT_DIRS = ("brand_library", "employee", "skill_library")
 
 
 class FileMemoryRepository(MemoryFileRepositoryPort):
@@ -94,6 +93,79 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         if ".." in [part for part in normalized.split("/") if part]:
             raise ValidationError("data_path 不能包含 ..")
         return normalized
+
+    @staticmethod
+    def _normalize_visible_directory_path(data_path: str) -> str:
+        """规范化数字员工可见目录路径，允许使用 ``/`` 表示用户根目录。"""
+        normalized = str(data_path or "").strip().replace("\\", "/")
+        if not normalized or normalized == "/":
+            return "/"
+        parts = [part for part in normalized.split("/") if part and part != "."]
+        if not parts:
+            return "/"
+        if ".." in parts:
+            raise ValidationError("path 不能包含 ..")
+        return "/".join(parts)
+
+    @staticmethod
+    def _normalize_single_file_name(file_name: str, *, field_name: str) -> str:
+        """规范化单文件名，禁止包含路径。"""
+        raw_name = str(file_name or "").strip()
+        if not raw_name:
+            raise ValidationError(f"{field_name} 不能为空")
+        if "/" in raw_name or "\\" in raw_name:
+            raise ValidationError(f"{field_name} 必须是文件名，不能包含路径")
+        normalized_name = Path(raw_name).name.strip()
+        if not normalized_name or normalized_name in {".", ".."}:
+            raise ValidationError(f"{field_name} 非法")
+        if len(normalized_name) > 255:
+            raise ValidationError(f"{field_name} 过长（最多 255 个字符）")
+        return normalized_name
+
+    @staticmethod
+    def _resolve_safe_path(base_dir: Path, tail_parts: list[str]) -> Path:
+        """将 ``tail_parts`` 拼接到 ``base_dir`` 并校验不发生目录逃逸。"""
+        target = (base_dir.joinpath(*tail_parts)).resolve()
+        if target != base_dir and base_dir not in target.parents:
+            raise ValidationError("path 目录非法")
+        return target
+
+    @staticmethod
+    def _deduplicate_file_name(base_dir: Path, file_name: str) -> str:
+        """目标文件名冲突时，生成 ``name(n).ext`` 形式的新文件名。"""
+        candidate = Path(file_name)
+        stem = candidate.stem
+        suffix = candidate.suffix
+        index = 1
+        renamed = file_name
+        while (base_dir / renamed).exists():
+            renamed = f"{stem}({index}){suffix}"
+            index += 1
+        return renamed
+
+    @classmethod
+    def _list_directory_entries(cls, *, target_dir: Path, prefix: str, can_write: bool) -> list[dict[str, object]]:
+        """列出指定目录下的一层可见条目。"""
+        if not target_dir.exists() or not target_dir.is_dir():
+            return []
+        children = sorted(
+            target_dir.iterdir(),
+            key=lambda item: (not item.is_dir(), item.name.lower()),
+        )
+        entries: list[dict[str, object]] = []
+        normalized_prefix = str(prefix or "").strip("/")
+        for child in children:
+            if child.is_dir() and child.name == ".memory":
+                continue
+            child_path = child.name if not normalized_prefix else f"{normalized_prefix}/{child.name}"
+            entries.append(
+                {
+                    "path": child_path,
+                    "is_dir": child.is_dir(),
+                    "can_write": can_write,
+                }
+            )
+        return entries
 
     @staticmethod
     def _ensure_user_root_dirs(user_id: str) -> None:
@@ -345,6 +417,145 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         if not target.exists() or not target.is_file():
             raise NotFoundError(f"文件不存在：{normalized_tree_path}")
         return str(target)
+
+    def list_employee_visible_directory(
+        self,
+        user_id: str,
+        employee_id: str = EMPLOYEE_ONE,
+        data_path: str = "/",
+    ) -> dict[str, object]:
+        """按数字员工权限列出目录：全用户目录可见，仅隐藏 ``.memory`` 目录。"""
+        resolved_employee_id = normalize_employee_id(employee_id)
+        self._ensure_user_scaffold(user_id, resolved_employee_id)
+        normalized_path = self._normalize_visible_directory_path(data_path)
+        path_parts = [part for part in normalized_path.split("/") if part]
+
+        if not path_parts:
+            return {
+                "path": "/",
+                "entries": [
+                    {"path": "brand_library", "is_dir": True, "can_write": False},
+                    {"path": "employee", "is_dir": True, "can_write": False},
+                    {"path": "skill_library", "is_dir": True, "can_write": False},
+                ],
+            }
+
+        root_name = path_parts[0]
+        if root_name not in VISIBLE_ROOT_DIRS:
+            raise ValidationError(f"不支持的目录：/{root_name}")
+
+        if root_name in {"brand_library", "skill_library"}:
+            if root_name == "brand_library":
+                base_dir = user_brand_library_dir(user_id).resolve()
+            else:
+                base_dir = user_skill_library_dir(user_id).resolve()
+            target_dir = self._resolve_safe_path(base_dir, path_parts[1:])
+            if not target_dir.exists() or not target_dir.is_dir():
+                raise NotFoundError(f"目录不存在：{normalized_path}")
+            entries = self._list_directory_entries(
+                target_dir=target_dir,
+                prefix=normalized_path,
+                can_write=False,
+            )
+            return {"path": normalized_path, "entries": entries}
+
+        if len(path_parts) == 1:
+            employee_root = user_employee_dir(user_id).resolve()
+            employee_ids = self._list_employee_ids(employee_root)
+            return {
+                "path": "employee",
+                "entries": [
+                    {
+                        "path": f"employee/{member_id}",
+                        "is_dir": True,
+                        "can_write": member_id == resolved_employee_id,
+                    }
+                    for member_id in employee_ids
+                ],
+            }
+
+        target_employee_id = normalize_employee_id(path_parts[1])
+        target_employee_root = user_employee_member_dir(user_id, target_employee_id).resolve()
+        if not target_employee_root.exists() or not target_employee_root.is_dir():
+            raise NotFoundError(f"目录不存在：{normalized_path}")
+        is_owner = target_employee_id == resolved_employee_id
+
+        if len(path_parts) == 2:
+            entries = self._list_directory_entries(
+                target_dir=target_employee_root,
+                prefix=f"employee/{target_employee_id}",
+                can_write=is_owner,
+            )
+            return {"path": f"employee/{target_employee_id}", "entries": entries}
+
+        if ".memory" in path_parts[2:]:
+            raise NotFoundError(f"目录不存在：{normalized_path}")
+
+        target_dir = self._resolve_safe_path(target_employee_root, path_parts[2:])
+        if not target_dir.exists() or not target_dir.is_dir():
+            raise NotFoundError(f"目录不存在：{normalized_path}")
+        entries = self._list_directory_entries(
+            target_dir=target_dir,
+            prefix=normalized_path,
+            can_write=is_owner,
+        )
+        return {"path": normalized_path, "entries": entries}
+
+    def copy_library_file_to_workspace(
+        self,
+        user_id: str,
+        employee_id: str = EMPLOYEE_ONE,
+        source_path: str = "",
+        *,
+        workspace_file_name: str = "",
+    ) -> dict[str, object]:
+        """复制 brand_library/skill_library 文件到当前员工 workspace。"""
+        resolved_employee_id = normalize_employee_id(employee_id)
+        self._ensure_user_scaffold(user_id, resolved_employee_id)
+        normalized_source_path = self._normalize_visible_directory_path(source_path)
+        if normalized_source_path == "/":
+            raise ValidationError("source_path 必须指向文件")
+        path_parts = [part for part in normalized_source_path.split("/") if part]
+        if len(path_parts) < 2:
+            raise ValidationError("source_path 必须形如 brand_library/<file> 或 skill_library/<file>")
+
+        source_root_name = path_parts[0]
+        if source_root_name == "brand_library":
+            source_root = user_brand_library_dir(user_id).resolve()
+        elif source_root_name == "skill_library":
+            source_root = user_skill_library_dir(user_id).resolve()
+        else:
+            raise ValidationError("source_path 仅支持 brand_library 或 skill_library")
+
+        source_file = self._resolve_safe_path(source_root, path_parts[1:])
+        if not source_file.exists() or not source_file.is_file():
+            raise NotFoundError(f"文件不存在：{normalized_source_path}")
+
+        workspace_root = user_employee_workspace_dir(user_id, resolved_employee_id).resolve()
+        workspace_root.mkdir(parents=True, exist_ok=True)
+        requested_workspace_name = str(workspace_file_name or "").strip()
+        if requested_workspace_name:
+            normalized_workspace_name = self._normalize_single_file_name(
+                requested_workspace_name,
+                field_name="workspace_file_name",
+            )
+        else:
+            normalized_workspace_name = source_file.name
+
+        target_name = normalized_workspace_name
+        target_file = self._resolve_safe_path(workspace_root, [target_name])
+        if target_file.exists():
+            target_name = self._deduplicate_file_name(workspace_root, target_name)
+            target_file = self._resolve_safe_path(workspace_root, [target_name])
+        shutil.copy2(source_file, target_file)
+
+        return {
+            "source_path": normalized_source_path,
+            "source_root": source_root_name,
+            "workspace_file_name": target_name,
+            "workspace_relative_path": f"employee/{resolved_employee_id}/workspace/{target_name}",
+            "renamed": target_name != normalized_workspace_name,
+        }
 
     @staticmethod
     def memory_relative_path(file_name: str) -> str:
