@@ -83,12 +83,14 @@
 
 ### 3.3 Storage
 
-- `GET /storage/tree?user_id=...`
-- `GET /storage/file-content?user_id=...&path=...`
-- `PUT /storage/file-content?user_id=...&path=...`
-- `GET /storage/file-preview?user_id=...&path=...`
-- `DELETE /storage/file?user_id=...&path=...`
-- `POST /storage/brand-library/upload?user_id=...`（`multipart/form-data`）
+- `GET /storage/tree?user_id=...&employee_id=...`
+- `GET /storage/file-content?user_id=...&employee_id=...&path=...`
+- `PUT /storage/file-content?user_id=...&employee_id=...&path=...`
+- `GET /storage/file-preview?user_id=...&employee_id=...&path=...`
+- `DELETE /storage/file?user_id=...&employee_id=...&path=...`
+- `POST /storage/brand-library/upload?user_id=...&employee_id=...`（`multipart/form-data`）
+
+`path` 统一为相对用户数据根目录的路径，例如 `employee/1/notebook/soul.md`。
 
 `PUT /storage/file-content` 请求体示例：
 

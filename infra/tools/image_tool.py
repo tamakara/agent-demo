@@ -186,7 +186,7 @@ class ImageToolService:
         aspect_ratio: str | None = None,
         resolution: str | None = None,
     ) -> dict[str, object]:
-        """生成单张图片并保存到员工 ``/workspace`` 目录。"""
+        """生成单张图片并保存到员工 ``workspace`` 目录。"""
         effective_llm_config = self._assert_llm_config(llm_config)
         normalized_name_hint = self._normalize_name_hint(name_hint)
         normalized_image_paths = self._normalize_image_paths(image_paths)
@@ -255,8 +255,7 @@ class ImageToolService:
             "name_hint": normalized_name_hint,
             "image_paths": normalized_image_paths,
             "workspace_file_name": normalized_file_name,
-            "workspace_relative_path": f"/employee/{employee_id}/workspace/{normalized_file_name}",
-            "workspace_abs_path": str(target_path),
+            "workspace_relative_path": f"employee/{employee_id}/workspace/{normalized_file_name}",
             "aspect_ratio": normalized_aspect_ratio,
             "resolution": normalized_resolution,
             "output_format": DEFAULT_OUTPUT_FORMAT,
@@ -272,7 +271,7 @@ class ImageToolService:
         workspace_file_name: str,
         brand_file_name: str | None = None,
     ) -> dict[str, str]:
-        """将员工 ``/workspace`` 下图片复制到用户 ``/brand_library``。"""
+        """将员工 ``workspace`` 下图片复制到用户 ``brand_library``。"""
         raw_workspace_file_name = str(workspace_file_name or "").strip()
         if not raw_workspace_file_name:
             raise ValidationError("workspace_file_name 不能为空")
@@ -306,8 +305,7 @@ class ImageToolService:
 
         return {
             "workspace_file_name": normalized_workspace_file_name,
-            "workspace_relative_path": f"/employee/{employee_id}/workspace/{normalized_workspace_file_name}",
+            "workspace_relative_path": f"employee/{employee_id}/workspace/{normalized_workspace_file_name}",
             "brand_file_name": normalized_brand_file_name,
-            "brand_relative_path": f"/brand_library/{normalized_brand_file_name}",
-            "brand_abs_path": str(target_path),
+            "brand_relative_path": f"brand_library/{normalized_brand_file_name}",
         }

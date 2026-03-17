@@ -83,6 +83,7 @@ export const ui = {
   buildImagePreviewUrl(treePath, { bustCache = true } = {}) {
     const query = new URLSearchParams({
       user_id: String(state.userId || ""),
+      employee_id: String(state.activeEmployeeId || "1"),
       path: String(treePath || "")
     });
     if (bustCache) query.set("ts", String(Date.now()));
@@ -205,7 +206,7 @@ export const ui = {
     const buildNode = (entry, depth = 0) => {
       const isExpanded = state.expandedDirs.has(entry.path);
       const parts = entry.path.split("/").filter(Boolean);
-      const isRootFolder = entry.is_dir && entry.path.startsWith("/") && parts.length === 1;
+      const isRootFolder = entry.is_dir && parts.length === 1;
       const isEmployeeMemberFolder = entry.is_dir && parts[0] === "employee" && parts.length === 2;
       let displayName = parts[parts.length - 1] || entry.path;
       if (isRootFolder) displayName = `${parts[0]}/`;
@@ -245,6 +246,8 @@ export const ui = {
     const activePath = String(selected?.path || "");
     const selectedKind = String(selected?.kind || "none");
     const file = findEditableFile(activePath);
+    const selectedTreeEntry = state.dataTree.find((entry) => String(entry.path || "") === activePath) || null;
+    const canWriteSelected = selectedTreeEntry ? selectedTreeEntry.can_write !== false : true;
     const cachedTextContent = state.textFileCache[activePath];
     const globallyLocked = !state.userId || state.isChatting;
     const canDelete = !!activePath && !globallyLocked && isDeletableFilePath(activePath);
@@ -275,7 +278,7 @@ export const ui = {
       els.btnDeleteFile.disabled = !canDelete;
       if (file && typeof file.content === "string") {
         els.fileContent.value = file.content;
-        els.btnSaveFile.disabled = globallyLocked;
+        els.btnSaveFile.disabled = globallyLocked || !canWriteSelected;
         return;
       }
       if (state.loadingTextFilePath === activePath) {
@@ -285,7 +288,7 @@ export const ui = {
       }
       if (typeof cachedTextContent === "string") {
         els.fileContent.value = cachedTextContent;
-        els.btnSaveFile.disabled = globallyLocked;
+        els.btnSaveFile.disabled = globallyLocked || !canWriteSelected;
         return;
       }
       els.fileContent.value = "文本文件加载失败，请重试。";

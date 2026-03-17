@@ -93,7 +93,7 @@ python run.py
 - `POST /user/employees`：创建新数字员工（body 携带 `user_id`）
 - `GET /user/employee-messages?user_id=...&employee_id=...`：读取指定员工历史消息
 - `POST /chat/stream`：流式对话（body 携带 `user_id`、`employee_id`、`message`）
-- `GET /storage/tree?user_id=...`：返回用户数据目录树与可编辑记忆文件
+- `GET /storage/tree?user_id=...&employee_id=...`：返回用户数据目录树与可编辑记忆文件（`path` 采用相对用户数据根路径）
 
 ## 6. 文档入口
 

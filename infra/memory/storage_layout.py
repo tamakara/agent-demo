@@ -9,6 +9,7 @@ from common.ids import normalize_employee_id
 from common.errors import ValidationError
 from domain.chat.memory_files import (
     ASSET_PLACEHOLDER_FILE,
+    COMPRESSED_MEMORY_DIR,
     COMPRESSED_MEMORY_FILE,
     MEMORY_FILE_LOCATIONS_UNDER_EMPLOYEE,
     PERSONA_FILE,
@@ -25,6 +26,7 @@ EMPLOYEE_ONE = "1"
 NOTEBOOK_SUBDIR = "notebook"
 WORKSPACE_SUBDIR = "workspace"
 SKILLS_SUBDIR = "skills"
+MEMORY_SUBDIR = COMPRESSED_MEMORY_DIR
 BRAND_LIBRARY_SUBDIR = "brand_library"
 SKILL_LIBRARY_SUBDIR = "skill_library"
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -77,9 +79,14 @@ def user_employee_skills_dir(user_id: str, employee_id: str) -> Path:
     return user_employee_member_dir(user_id, employee_id) / SKILLS_SUBDIR
 
 
+def user_employee_memory_dir(user_id: str, employee_id: str = EMPLOYEE_ONE) -> Path:
+    """返回指定员工压缩记忆目录（.memory）。"""
+    return user_employee_member_dir(user_id, employee_id) / MEMORY_SUBDIR
+
+
 def user_employee_memory_file(user_id: str, employee_id: str = EMPLOYEE_ONE) -> Path:
-    """返回指定员工的压缩记忆文件路径（.memory.md）。"""
-    return user_employee_member_dir(user_id, employee_id) / COMPRESSED_MEMORY_FILE
+    """返回指定员工的压缩记忆文件路径（.memory/memory.md）。"""
+    return user_employee_memory_dir(user_id, employee_id) / COMPRESSED_MEMORY_FILE
 
 
 def user_brand_library_dir(user_id: str) -> Path:

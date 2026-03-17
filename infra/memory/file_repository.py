@@ -25,6 +25,7 @@ from .storage_layout import (
     user_brand_library_dir,
     user_employee_dir,
     user_employee_member_dir,
+    user_employee_memory_dir,
     user_employee_memory_file,
     user_employee_notebook_dir,
     user_employee_skills_dir,
@@ -35,6 +36,7 @@ from .storage_layout import (
 
 
 WriteMode = Literal["append", "overwrite"]
+AccessMode = Literal["read", "write", "delete"]
 
 
 EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
@@ -67,7 +69,6 @@ EMPLOYEE_INITIAL_MEMORY_FILES: dict[str, str] = {
 }
 
 PREFERRED_FILE_ORDER = [
-    COMPRESSED_MEMORY_FILE,
     PERSONA_FILE,
     SCHEDULE_FILE,
     WORKBOOK_FILE,
@@ -83,13 +84,15 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
     @staticmethod
     def _normalize_tree_path(data_path: str) -> str:
         """规范化目录树路径格式。"""
-        normalized = str(data_path or "").strip()
+        normalized = str(data_path or "").strip().replace("\\", "/")
         if not normalized:
             raise ValidationError("data_path 不能为空")
-        if not normalized.startswith("/"):
-            raise ValidationError("data_path 必须以 / 开头")
-        if normalized == "/":
+        if normalized.startswith("/"):
+            raise ValidationError("data_path 必须是相对路径，不能以 / 开头")
+        if normalized in {".", "./"}:
             raise ValidationError("data_path 不能是根目录")
+        if ".." in [part for part in normalized.split("/") if part]:
+            raise ValidationError("data_path 不能包含 ..")
         return normalized
 
     @staticmethod
@@ -116,6 +119,7 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
 
         scaffold_dirs = [
             employee_dir,
+            user_employee_memory_dir(user_id, employee_id),
             user_employee_notebook_dir(user_id, employee_id),
             user_employee_workspace_dir(user_id, employee_id),
             user_employee_skills_dir(user_id, employee_id),
@@ -226,6 +230,7 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
     def list_employee_data_paths(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> list[dict[str, object]]:
         """列出用户目录三层结构，用于前端目录展示。"""
         self._ensure_user_root_dirs(user_id)
+        current_employee_id = normalize_employee_id(employee_id)
         brand_root = user_brand_library_dir(user_id)
         skill_root = user_skill_library_dir(user_id)
         employee_root = user_employee_dir(user_id)
@@ -233,14 +238,20 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         entries: list[dict[str, object]] = []
         seen_paths: set[str] = set()
 
-        def append_entry(path: str, is_dir: bool) -> None:
+        def append_entry(path: str, is_dir: bool, *, can_write: bool) -> None:
             """追加目录项并保持去重。"""
             if path in seen_paths:
                 return
             seen_paths.add(path)
-            entries.append({"path": path, "is_dir": is_dir})
+            entries.append({"path": path, "is_dir": is_dir, "can_write": can_write})
 
-        def append_direct_files(base_dir: Path, prefix: str, *, suffixes: set[str] | None = None) -> None:
+        def append_direct_files(
+            base_dir: Path,
+            prefix: str,
+            *,
+            can_write: bool,
+            suffixes: set[str] | None = None,
+        ) -> None:
             """仅追加目录下一层文件，限制目录深度到三层。"""
             if not base_dir.exists():
                 return
@@ -250,46 +261,63 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
                 if suffixes is not None and file_path.suffix.lower() not in suffixes:
                     continue
                 if file_path.is_file():
-                    append_entry(f"{prefix}/{file_path.name}", is_dir=False)
+                    append_entry(f"{prefix}/{file_path.name}", is_dir=False, can_write=can_write)
 
-        append_entry("/brand_library", is_dir=True)
-        append_direct_files(brand_root, "/brand_library")
+        append_entry("brand_library", is_dir=True, can_write=True)
+        append_direct_files(brand_root, "brand_library", can_write=True)
 
-        append_entry("/employee", is_dir=True)
+        append_entry("employee", is_dir=True, can_write=False)
         for member_id in employee_ids:
             # 用户级目录树需要展示全部 employee/{id} 子目录。
             self._ensure_user_scaffold(user_id, member_id)
-            member_prefix = f"/employee/{member_id}"
+            member_prefix = f"employee/{member_id}"
+            is_owner = member_id == current_employee_id
             notebook_root = user_employee_notebook_dir(user_id, member_id)
             skills_root = user_employee_skills_dir(user_id, member_id)
             workspace_root = user_employee_workspace_dir(user_id, member_id)
-
-            append_entry(member_prefix, is_dir=True)
             memory_file = user_employee_memory_file(user_id, member_id)
+
+            append_entry(member_prefix, is_dir=True, can_write=is_owner)
+            append_entry(f"{member_prefix}/.memory", is_dir=True, can_write=False)
             if memory_file.exists() and memory_file.is_file():
-                append_entry(f"{member_prefix}/{COMPRESSED_MEMORY_FILE}", is_dir=False)
+                append_entry(f"{member_prefix}/.memory/{COMPRESSED_MEMORY_FILE}", is_dir=False, can_write=is_owner)
+            append_entry(f"{member_prefix}/notebook", is_dir=True, can_write=is_owner)
+            append_direct_files(notebook_root, f"{member_prefix}/notebook", can_write=is_owner)
 
-            append_entry(f"{member_prefix}/notebook", is_dir=True)
-            append_direct_files(notebook_root, f"{member_prefix}/notebook")
+            append_entry(f"{member_prefix}/skills", is_dir=True, can_write=is_owner)
+            append_direct_files(skills_root, f"{member_prefix}/skills", can_write=is_owner)
 
-            append_entry(f"{member_prefix}/skills", is_dir=True)
-            append_direct_files(skills_root, f"{member_prefix}/skills")
+            append_entry(f"{member_prefix}/workspace", is_dir=True, can_write=is_owner)
+            append_direct_files(workspace_root, f"{member_prefix}/workspace", can_write=is_owner)
 
-            append_entry(f"{member_prefix}/workspace", is_dir=True)
-            append_direct_files(workspace_root, f"{member_prefix}/workspace")
-
-        append_entry("/skill_library", is_dir=True)
-        append_direct_files(skill_root, "/skill_library")
+        append_entry("skill_library", is_dir=True, can_write=True)
+        append_direct_files(skill_root, "skill_library", can_write=True)
         return entries
 
     def employee_data_root(self, user_id: str, employee_id: str = EMPLOYEE_ONE) -> str:
-        """返回用户数据目录绝对路径。"""
+        """返回用户数据目录根（相对路径）。"""
         self._ensure_user_root_dirs(user_id)
-        return str(user_root_dir(user_id).resolve())
+        return "."
 
-    def resolve_data_file_path(self, user_id: str, employee_id: str = EMPLOYEE_ONE, data_path: str = "") -> str:
+    @staticmethod
+    def _assert_employee_directory_access(*, actor_employee_id: str, target_employee_id: str, access_mode: AccessMode) -> None:
+        """校验员工目录访问权限：本员工可写，其他员工只读。"""
+        if access_mode == "read":
+            return
+        if actor_employee_id != target_employee_id:
+            raise ValidationError("仅允许修改当前员工目录；其他员工目录仅支持查看")
+
+    def resolve_data_file_path(
+        self,
+        user_id: str,
+        employee_id: str = EMPLOYEE_ONE,
+        data_path: str = "",
+        *,
+        access_mode: AccessMode = "read",
+    ) -> str:
         """将目录树路径解析为真实绝对文件路径。"""
-        self._ensure_user_scaffold(user_id, employee_id)
+        resolved_actor_employee_id = normalize_employee_id(employee_id)
+        self._ensure_user_scaffold(user_id, resolved_actor_employee_id)
         normalized_tree_path = self._normalize_tree_path(data_path)
         path_parts = [part for part in normalized_tree_path.split("/") if part]
         if not path_parts:
@@ -299,11 +327,17 @@ class FileMemoryRepository(MemoryFileRepositoryPort):
         tail_parts = path_parts[1:]
         if root_name == "employee":
             if len(path_parts) < 3:
-                raise ValidationError("employee 数据路径必须形如 /employee/{employee_id}/<file>")
+                raise ValidationError("employee 数据路径必须形如 employee/{employee_id}/<file>")
             resolved_employee_id = normalize_employee_id(path_parts[1])
             tail_parts = path_parts[2:]
-            if self._contains_hidden_path_part(tail_parts) and tail_parts != [COMPRESSED_MEMORY_FILE]:
-                raise ValidationError("仅允许访问员工目录下的 .memory.md 隐藏文件")
+            allow_hidden_memory_file = tail_parts == [".memory", COMPRESSED_MEMORY_FILE]
+            if self._contains_hidden_path_part(tail_parts) and not allow_hidden_memory_file:
+                raise ValidationError("员工隐藏目录仅允许访问 .memory/memory.md")
+            self._assert_employee_directory_access(
+                actor_employee_id=resolved_actor_employee_id,
+                target_employee_id=resolved_employee_id,
+                access_mode=access_mode,
+            )
             self._ensure_user_scaffold(user_id, resolved_employee_id)
             base_dir = user_employee_member_dir(user_id, resolved_employee_id).resolve()
         elif root_name == "brand_library":

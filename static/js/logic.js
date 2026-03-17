@@ -155,7 +155,7 @@ export const logic = {
     state.loadingTextFilePath = targetPath;
     ui.updateEditor();
     try {
-      const data = await api.get("/storage/file-content", { ...userQuery(), path: targetPath });
+      const data = await api.get("/storage/file-content", { ...employeeQuery(), path: targetPath });
       state.textFileCache[targetPath] = String(data?.content ?? "");
     } catch (err) {
       ui.notify(`读取文件失败: ${err.message}`, "error");
@@ -330,7 +330,7 @@ export const logic = {
     }
     const confirmed = window.confirm(`确认删除文件吗？\n${selected.path}`);
     if (!confirmed) return;
-    await api.del("/storage/file", { ...userQuery(), path: selected.path });
+    await api.del("/storage/file", { ...employeeQuery(), path: selected.path });
     if (state.loadingTextFilePath === selected.path) {
       state.loadingTextFilePath = "";
     }
@@ -348,7 +348,7 @@ export const logic = {
     }
     const files = Array.from(fileList || []).filter(Boolean);
     if (!files.length) return;
-    const result = await api.upload("/storage/brand-library/upload", files, userQuery());
+    const result = await api.upload("/storage/brand-library/upload", files, employeeQuery());
     await this.refreshFiles();
     const uploaded = Array.isArray(result?.uploaded) ? result.uploaded : [];
     if (!uploaded.length) {
@@ -411,7 +411,7 @@ export const logic = {
   async refreshFiles({ resetExpandedDirs = false } = {}) {
     if (resetExpandedDirs) state.expandedDirs = new Set();
     const currentSelectedPath = String(state.selectedFile?.path || "");
-    const mem = await api.get("/storage/tree", userQuery());
+    const mem = await api.get("/storage/tree", employeeQuery());
     state.files = mem.files || [];
     state.dataTree = mem.tree || [];
     const currentPaths = new Set(
@@ -571,12 +571,17 @@ export const logic = {
           ui.notify("当前文件不可编辑", "error");
           return;
         }
+        const treeEntry = state.dataTree.find((entry) => String(entry.path || "") === selected.path);
+        if (treeEntry && treeEntry.can_write === false) {
+          ui.notify("当前为只读文件（其他员工目录）", "error");
+          return;
+        }
 
         const content = els.fileContent.value;
         const result = await api.put(
           "/storage/file-content",
           { content, mode: "overwrite" },
-          { ...userQuery(), path: selected.path }
+          { ...employeeQuery(), path: selected.path }
         );
         const latestContent = typeof result?.content === "string" ? result.content : content;
         const file = findEditableFile(selected.path);

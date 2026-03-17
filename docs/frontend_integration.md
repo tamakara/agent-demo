@@ -24,14 +24,14 @@
 
 1. 不使用 `/{user_id}` 风格路径。
 2. `user_id`、`employee_id` 通过 query/body 传递。
-3. 文件操作统一使用 query `path`。
+3. 文件操作统一使用 query `path`，且 `path` 为相对用户数据根目录的路径（例如 `employee/1/notebook/soul.md`）。
 4. 上传接口使用 `multipart/form-data`。
 
 常用接口：
 
 - User：`/user/settings`、`/user/employees`、`/user/employee-messages`
 - Chat：`/chat/stream`、`/chat/memory/status`、`/chat/memory/compression`
-- Storage：`/storage/tree`、`/storage/file-content`、`/storage/file-preview`、`/storage/file`、`/storage/brand-library/upload`
+- Storage：`/storage/tree`、`/storage/file-content`、`/storage/file-preview`、`/storage/file`、`/storage/brand-library/upload`（均携带 `employee_id`）
 
 ## 4. SSE 解析策略
 

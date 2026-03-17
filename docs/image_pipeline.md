@@ -27,7 +27,6 @@
 
 - `workspace_file_name`
 - `workspace_relative_path`
-- `workspace_abs_path`
 - `model`
 - `endpoint`
 - `name_hint`
@@ -52,13 +51,12 @@
 - `workspace_relative_path`
 - `brand_file_name`
 - `brand_relative_path`
-- `brand_abs_path`
 
 ## 4. 推荐调用顺序
 
-1. 调用 `image_gen_edit` 生成图片，写入 `/employee/{employee_id}/workspace`。
+1. 调用 `image_gen_edit` 生成图片，写入 `employee/{employee_id}/workspace`。
 2. 从结果中读取 `workspace_file_name`。
-3. 需要沉淀素材时，再调用 `copy_workspace_image_to_brand_library` 复制到 `/brand_library`。
+3. 需要沉淀素材时，再调用 `copy_workspace_image_to_brand_library` 复制到 `brand_library`。
 
 ## 5. 目录展示与可见性
 
@@ -71,5 +69,5 @@
 
 展示范围：
 
-- `/employee/{employee_id}/workspace`
-- `/brand_library`
+- `employee/{employee_id}/workspace`
+- `brand_library`

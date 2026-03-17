@@ -119,15 +119,22 @@ class MemoryFileRepositoryPort(Protocol):
         ...
 
     def employee_data_root(self, user_id: str, employee_id: str) -> str:
-        """返回员工数据目录绝对路径字符串。"""
+        """返回员工数据目录根路径（相对 user 数据根）。"""
         ...
 
     def memory_relative_path(self, file_name: str) -> str:
         """返回记忆文件相对员工目录路径。"""
         ...
 
-    def resolve_data_file_path(self, user_id: str, employee_id: str, data_path: str) -> str:
-        """根据目录树路径解析真实数据文件绝对路径。"""
+    def resolve_data_file_path(
+        self,
+        user_id: str,
+        employee_id: str,
+        data_path: str,
+        *,
+        access_mode: str = "read",
+    ) -> str:
+        """根据目录树路径解析真实数据文件绝对路径，并校验读写权限。"""
         ...
 
     async def read_memory_file(self, *, user_id: str, employee_id: str, file_name: str) -> str:

@@ -47,16 +47,16 @@ class BuiltinToolRunner:
         is_write: bool,
         mode: str = "",
     ) -> None:
-        """校验记忆文件访问权限，默认禁止点开头隐藏文件。"""
+        """校验记忆文件访问权限，压缩记忆仅允许压缩流程覆盖写入。"""
         normalized_name = str(file_name or "").strip()
-        if not normalized_name.startswith("."):
+        if normalized_name == COMPRESSED_MEMORY_FILE:
+            if not allow_hidden_memory_files:
+                raise ValidationError("当前场景不允许读取或写入压缩记忆文件")
+            if is_write and mode != "overwrite":
+                raise ValidationError("压缩记忆文件仅支持覆盖写入")
             return
-        if normalized_name != COMPRESSED_MEMORY_FILE:
+        if normalized_name.startswith("."):
             raise ValidationError("隐藏记忆文件不可访问")
-        if not allow_hidden_memory_files:
-            raise ValidationError("当前场景不允许读取或写入隐藏记忆文件")
-        if is_write and mode != "overwrite":
-            raise ValidationError("隐藏记忆文件仅支持覆盖写入")
 
     async def execute(
         self,

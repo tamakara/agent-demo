@@ -22,6 +22,7 @@ from api.routes_shared import (
     normalize_upload_file_name,
     normalize_user_path,
     raise_http,
+    resolve_employee,
 )
 from common.errors import AppError, NotFoundError, ValidationError
 from common.response import success_response
@@ -33,11 +34,20 @@ def create_storage_router(container: AppContainer) -> APIRouter:
     router = APIRouter(tags=["storage"])
 
     @router.get("/storage/tree")
-    async def storage_tree(user_id: str = Query(..., min_length=1)) -> JSONResponse:
+    async def storage_tree(
+        user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
+    ) -> JSONResponse:
         """列出用户级数据目录树与可编辑记忆文件。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(user_id)
+            normalized_employee_id, _ = await resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
             employees = await container.employee_service.list_employees(normalized_user_id, limit=300)
             for item in employees:
                 await container.memory_file_service.ensure_employee_files(normalized_user_id, item.employee_id)
@@ -52,14 +62,15 @@ def create_storage_router(container: AppContainer) -> APIRouter:
                     serialized["relative_path"] = (
                         f"employee/{item.employee_id}/{relative}" if relative else f"employee/{item.employee_id}"
                     )
+                    serialized["can_write"] = item.employee_id == normalized_employee_id
                     files_payload.append(serialized)
 
             return JSONResponse(
                 success_response(
                     request_id=request_id,
                     data={
-                        "data_dir": container.memory_file_service.data_root(normalized_user_id, "1"),
-                        "tree": container.memory_file_service.list_data_paths(normalized_user_id, "1"),
+                        "data_dir": container.memory_file_service.data_root(normalized_user_id, normalized_employee_id),
+                        "tree": container.memory_file_service.list_data_paths(normalized_user_id, normalized_employee_id),
                         "files": files_payload,
                     },
                 )
@@ -70,16 +81,24 @@ def create_storage_router(container: AppContainer) -> APIRouter:
     @router.get("/storage/file-preview")
     async def file_preview(
         user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
         path: str = Query(..., min_length=1),
     ) -> FileResponse:
         """预览用户目录中的图片文件。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(user_id)
+            normalized_employee_id, _ = await resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
             abs_path = container.memory_file_service.resolve_data_file_path(
                 normalized_user_id,
-                "1",
+                normalized_employee_id,
                 path,
+                access_mode="read",
             )
             suffix = abs_path.rsplit(".", 1)[-1].lower() if "." in abs_path else ""
             normalized_suffix = f".{suffix}" if suffix else ""
@@ -93,16 +112,24 @@ def create_storage_router(container: AppContainer) -> APIRouter:
     @router.get("/storage/file-content")
     async def file_content(
         user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
         path: str = Query(..., min_length=1),
     ) -> JSONResponse:
         """读取目录树中的文本文件内容。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(user_id)
+            normalized_employee_id, _ = await resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
             abs_path = container.memory_file_service.resolve_data_file_path(
                 normalized_user_id,
-                "1",
+                normalized_employee_id,
                 path,
+                access_mode="read",
             )
             if Path(abs_path).suffix.lower() not in EDITABLE_TEXT_SUFFIXES:
                 raise ValidationError(f"仅支持文本文件读取（.md/.txt）：{path}")
@@ -118,16 +145,24 @@ def create_storage_router(container: AppContainer) -> APIRouter:
     async def update_file_content(
         body: MemoryFileUpdateRequest,
         user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
         path: str = Query(..., min_length=1),
     ) -> JSONResponse:
         """更新目录树中的文本文件内容。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(user_id)
+            normalized_employee_id, _ = await resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
             abs_path = container.memory_file_service.resolve_data_file_path(
                 normalized_user_id,
-                "1",
+                normalized_employee_id,
                 path,
+                access_mode="write",
             )
             file_path = Path(abs_path)
             if file_path.suffix.lower() not in EDITABLE_TEXT_SUFFIXES:
@@ -150,19 +185,27 @@ def create_storage_router(container: AppContainer) -> APIRouter:
     @router.delete("/storage/file")
     async def delete_file(
         user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
         path: str = Query(..., min_length=1),
     ) -> JSONResponse:
         """删除目录树中的单个文件。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(user_id)
+            normalized_employee_id, _ = await resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
             root_name = data_root_from_tree_path(path)
             if root_name not in DELETABLE_DATA_ROOTS:
                 raise ValidationError("仅允许删除 brand_library 与 skill_library 下的文件")
             abs_path = container.memory_file_service.resolve_data_file_path(
                 normalized_user_id,
-                "1",
+                normalized_employee_id,
                 path,
+                access_mode="delete",
             )
             target = Path(abs_path)
             if not target.exists() or not target.is_file():
@@ -176,11 +219,18 @@ def create_storage_router(container: AppContainer) -> APIRouter:
     async def upload_brand_library_files(
         files: list[UploadFile] = File(...),
         user_id: str = Query(..., min_length=1),
+        employee_id: str = Query(default="1", min_length=1),
     ) -> JSONResponse:
-        """上传单个或多个文件到用户 ``/brand_library``。"""
+        """上传单个或多个文件到用户 ``brand_library``。"""
         request_id = new_request_id()
         try:
             normalized_user_id = normalize_user_path(user_id)
+            await resolve_employee(
+                container,
+                user_id=normalized_user_id,
+                employee_id=employee_id,
+                auto_create_default=True,
+            )
             brand_library_dir = user_brand_library_dir(normalized_user_id).resolve()
             brand_library_dir.mkdir(parents=True, exist_ok=True)
             if not files:
@@ -209,7 +259,7 @@ def create_storage_router(container: AppContainer) -> APIRouter:
                             "file_name": final_name,
                             "original_file_name": original_name,
                             "renamed": final_name != original_name,
-                            "path": f"/brand_library/{final_name}",
+                            "path": f"brand_library/{final_name}",
                             "size": len(payload),
                             "name_conflicted": name_conflicted,
                         }
@@ -227,4 +277,3 @@ def create_storage_router(container: AppContainer) -> APIRouter:
             raise raise_http(exc, request_id) from exc
 
     return router
-
