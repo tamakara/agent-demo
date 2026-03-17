@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, cast
 
 from app.ports.repositories import ClockPort, MemoryFileRepositoryPort, TokenCounterPort
@@ -55,6 +56,13 @@ class BuiltinToolRunner:
         normalized_name = str(file_name or "").strip()
         if normalized_name == COMPRESSED_MEMORY_FILE and not allow_hidden_memory_files:
             raise ValidationError("当前场景不允许读取或写入压缩记忆文件")
+
+    @staticmethod
+    def _assert_no_hidden_memory_path(data_path: str) -> None:
+        """屏蔽任何 ``.memory`` 路径访问。"""
+        path_parts = [part for part in str(data_path or "").strip().replace("\\", "/").split("/") if part]
+        if ".memory" in path_parts:
+            raise ValidationError("数字员工不可访问 .memory 目录文件")
 
     @staticmethod
     def _total_token_limit(llm_config: LLMConfig | None) -> int:
@@ -177,11 +185,31 @@ class BuiltinToolRunner:
         if normalized_tool_name == "get_current_time":
             return await self.clock.get_current_time()
 
+        if normalized_tool_name == "read_visible_file_by_path":
+            data_path = self._string_arg(arguments, "path")
+            self._assert_no_hidden_memory_path(data_path)
+            abs_path = self.memory_repo.resolve_data_file_path(
+                user_id=user_id,
+                employee_id=employee_id,
+                data_path=data_path,
+                access_mode="read",
+            )
+            file_path = Path(abs_path)
+            if file_path.suffix.lower() not in {".md", ".txt"}:
+                raise ValidationError(f"仅支持读取文本文件（.md/.txt）：{data_path}")
+            try:
+                return file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValidationError(f"文本文件编码不支持 UTF-8：{data_path}") from exc
+
         if normalized_tool_name == "list_employee_visible_directory":
+            directory_path = self._string_arg(arguments, "path")
+            if not directory_path.strip():
+                raise ValidationError("path 不能为空；查看素材库请使用 path='brand_library'")
             result = self.memory_repo.list_employee_visible_directory(
                 user_id=user_id,
                 employee_id=employee_id,
-                data_path=self._string_arg(arguments, "path", "/"),
+                data_path=directory_path,
             )
             return json.dumps(result, ensure_ascii=False)
 

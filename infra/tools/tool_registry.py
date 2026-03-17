@@ -63,6 +63,30 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "read_visible_file_by_path",
+            "description": (
+                "按用户数据根相对路径读取可见文本文件内容（支持 brand_library、skill_library、employee/*）。"
+                "可读取其他员工目录文件，但 .memory 目录不可访问。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "文件相对路径，例如 "
+                            "employee/2/workspace/notes.md 或 brand_library/brief.txt。"
+                        ),
+                    }
+                },
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_current_time",
             "description": "直接获取系统当前时间信息（UTC 与本地时间）。",
             "parameters": {
@@ -82,15 +106,17 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "employee 下可查看所有员工目录，但只有当前员工目录 can_write=true。"
                 "所有 .memory 目录都会被隐藏。"
                 "brand_library 与 skill_library 对数字员工均为只读（can_write=false）。"
+                "素材库即 brand_library；当用户说“素材库”时应传 path='brand_library'。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "要查看的目录路径；'/' 代表用户数据根目录。",
+                        "description": "要查看的目录路径。示例：'brand_library'、'employee/2/workspace'、'/'。",
                     },
                 },
+                "required": ["path"],
                 "additionalProperties": False,
             },
         },

@@ -38,6 +38,13 @@
 - 若 `append` 或 `overwrite` 后因 token 超限失败，必须先调用 `read_memory_file` 读取原文，再基于“原文 + 新信息”合并压缩后，用 `mode="overwrite"` 整体写回。
 - 出现超限错误时不要重复盲目追加，避免反复失败。
 
+工具：`read_visible_file_by_path`
+
+- 适用：按路径读取用户可见目录中的文本文件（包括其他员工目录）。
+- 必填参数：`path`（相对用户数据根，如 `employee/2/workspace/notes.md`）。
+- 仅支持读取 `.md/.txt` 文本文件。
+- `.memory` 目录不可访问；若需记忆文件读取，请使用 `read_memory_file`（且受场景权限限制）。
+
 工具：`get_current_time`
 
 - 适用：用户提到“现在/今天/明天/截止时间/时区时间”等需要实时时间锚点的请求。
@@ -47,6 +54,7 @@
 
 - 适用：用户要求“查看有哪些文件/目录”“先看文件结构再操作”等场景。
 - `path="/"` 用于查看用户根目录（`brand_library`、`employee`、`skill_library`）。
+- “素材库”固定指 `brand_library`；当用户说“查看素材库”时，必须使用 `path="brand_library"`，不要传 `/`。
 - `employee` 下可见所有员工目录，但其他员工目录均为只读（`can_write=false`）。
 - 所有 `.memory` 目录不可见。
 - `brand_library` 与 `skill_library` 均为只读目录，不能直接改写。
