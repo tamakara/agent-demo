@@ -2,12 +2,10 @@
     <base>
         {{BASE_PROMPT}}
     </base>
-    <memory_constraints>
-        <memory_token_limit>
-            {{MEMORY_TOKEN_LIMIT}}
-        </memory_token_limit>
-    </memory_constraints>
     <previous_memory>
         {{PREVIOUS_MEMORY}}
     </previous_memory>
+    <memory_token_limit>
+        {{MEMORY_TOKEN_LIMIT}}
+    </memory_token_limit>
 </compression_prompt>

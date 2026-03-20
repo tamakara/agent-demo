@@ -2,9 +2,7 @@
     <base>
         {{BASE_PROMPT}}
     </base>
-    <summary_constraints>
-        <summary_token_limit>
-            {{SUMMARY_TOKEN_LIMIT}}
-        </summary_token_limit>
-    </summary_constraints>
+    <summary_token_limit>
+        {{SUMMARY_TOKEN_LIMIT}}
+    </summary_token_limit>
 </dialogue_summary_prompt>
