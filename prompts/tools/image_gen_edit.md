@@ -1,0 +1,5 @@
+- `image_gen_edit`
+- 作用：执行文生图并将结果写入当前员工 `workspace` 目录。
+- 必填参数：`nameHint`、`prompt`
+- 可选参数：`imagePath`、`aspectRatio`、`resolution`
+- 输出：返回 `workspace_file_name` 与 `workspace_relative_path` 等生成结果元信息。

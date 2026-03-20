@@ -135,11 +135,11 @@ prompts/
    - `compression_base_prompt.md` 会额外注入 `MEMORY_FILE_PATH` 与 `MEMORY_TOKEN_LIMIT`
 2. 将旧 `dialogue` 区拼接为一段文本，作为归档 `user` 消息输入。
 3. 用归档消息触发 `chat.completions`：读取当前 `memory.md`，以 `mode=overwrite` 覆盖写回更新后的 `memory.md`，最后输出压缩摘要。
-4. 受管记忆文件 token 限制按 `total_token_limit` 比例统一在 `write_memory_file` 工具写入时校验：
+4. 受管记忆文件 token 限制按 `total_token_limit` 比例统一在 `write_notebook_file` 工具写入时校验：
    - `memory.md`（`.memory/memory.md`）：5%
    - `file.md` / `soul.md` / `schedule.md` / `workbook.md`：各 1%
 5. 受管记忆文件通常可用 `append` 增量更新；写入后会按最终文件大小校验。
-6. 以上限制仅在 `write_memory_file` 工具路径执行，不在其它链路做额外硬限制。
+6. 以上限制仅在 `write_notebook_file` 工具路径执行，不在其它链路做额外硬限制。
 7. 若任一受管记忆文件写入超限会直接报错，Agent 需先读原文并继续压缩后再整体 overwrite 写回。
 8. system_prompt 预算中的固定 1%（base + chat 模板固定内容）仅作预算参考，不做硬性校验。
 9. 压缩记忆文件固定为 `employee/<id>/.memory/memory.md`；不兼容历史 `.memory.md` 单文件布局，也不做自动迁移。

@@ -258,7 +258,7 @@ sequenceDiagram
 
 ## 7. 写记忆后“即时生效”机制
 
-在聊天主链路中，当工具调用 `write_memory_file` 成功后，`tool_loop.py` 会触发 `refresh_system_message`：
+在聊天主链路中，当工具调用 `write_notebook_file` 成功后，`tool_loop.py` 会触发 `refresh_system_message`：
 
 ```mermaid
 sequenceDiagram
@@ -267,8 +267,8 @@ sequenceDiagram
     participant FS as FileMemoryRepository
     participant M as MemoryContextService
 
-    L->>F: execute(write_memory_file, args)
-    F->>FS: write_memory_file(...)
+    L->>F: execute(write_notebook_file, args)
+    F->>FS: write_notebook_file(...)
     FS-->>F: 写入成功
     L->>M: refresh_system_message()
     M->>FS: re-read memory files
@@ -331,7 +331,7 @@ flowchart TD
 1. 归档输入使用“旧 `dialogue` 全量文本”（含工具消息内容）。
 2. 归档 system 由 `compression.xml` 构建，并同时注入 `compression_base_prompt.md` 与 `tools_base_prompt.md`（含工具定义），用于辅助模型熟悉可用工具；不注入 `chat.xml` 常驻内容。
 3. 压缩任务提示词要求读取当前 `memory.md`，再将提炼后的完整新内容以 `mode=overwrite` 写回 `memory.md`。
-4. 受管记忆文件 token 限制按 `total_token_limit` 比例统一在 `write_memory_file` 工具写入时执行：
+4. 受管记忆文件 token 限制按 `total_token_limit` 比例统一在 `write_notebook_file` 工具写入时执行：
    - `.memory/memory.md`：5%
    - `notebook/file.md`：1%
    - `notebook/schedule.md`：1%
@@ -340,7 +340,7 @@ flowchart TD
    - 以上比例以 `domain/chat/memory_files.py` 为唯一配置源
 5. 受管记忆文件通常可通过 `mode=append` 增量更新；token 校验按写入后的最终文件内容执行。
 6. system_prompt 预算中的固定提示词 1%（base + chat 模板固定内容）不做硬性限制与拦截。
-7. 记忆文件大小限制仅在 `write_memory_file` 工具路径执行；不在其它链路做额外拦截。
+7. 记忆文件大小限制仅在 `write_notebook_file` 工具路径执行；不在其它链路做额外拦截。
 8. 若受管记忆文件写入超限会报错，Agent 必须先读原文并继续压缩，再以 `mode=overwrite` 整体写回。
 9. 回填 `resident_recent` 时只保留 `role in {user, assistant}` 且 `message_kind=chat` 的近期消息。
 10. 压缩期间产生的 `buffer` 会完整迁回 `dialogue`，包括 `tool_call/tool_result`。

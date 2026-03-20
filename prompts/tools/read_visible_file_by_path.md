@@ -1,0 +1,5 @@
+- `read_visible_file_by_path`
+- 作用：按相对路径读取用户可见目录中的文本文件内容。
+- 必填参数：`path`
+- 路径示例：`employee/2/workspace/notes.md`、`brand_library/brief.txt`。
+- 约束：仅支持 `.md`、`.txt`；`.memory` 目录不可访问。

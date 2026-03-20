@@ -12,6 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 PROMPT_TEMPLATES_DIR = PROMPTS_DIR / "templates"
 PROMPT_SECTIONS_DIR = PROMPTS_DIR / "sections"
+PROMPT_TOOLS_DIR = PROMPTS_DIR / "tools"
 
 CHAT_TEMPLATE_FILE = "chat.xml"
 COMPRESSION_TEMPLATE_FILE = "compression.xml"
@@ -35,6 +36,16 @@ def _read_section_file(file_name: str) -> str:
     return _read_prompt_file(PROMPT_SECTIONS_DIR / file_name)
 
 
+def _read_tool_prompt_file(tool_name: str) -> str:
+    normalized_name = str(tool_name or "").strip()
+    if not normalized_name:
+        return ""
+    file_path = PROMPT_TOOLS_DIR / f"{normalized_name}.md"
+    if not file_path.exists():
+        return ""
+    return _read_prompt_file(file_path)
+
+
 def render_prompt_template(template: str, variables: Mapping[str, str]) -> str:
     rendered = str(template or "")
     for key, value in variables.items():
@@ -52,26 +63,34 @@ def compose_tools_prompt(*, tool_definitions: str) -> str:
 
 
 class FilePromptTemplateRepository(IPromptTemplateRepository):
+    def compose_tool_definitions(self, *, tool_names: list[str]) -> str:
+        sections: list[str] = []
+        seen: set[str] = set()
+        for name in tool_names:
+            normalized = str(name or "").strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            section = _read_tool_prompt_file(normalized).strip()
+            if section:
+                sections.append(section)
+            else:
+                sections.append(f"- `{normalized}`")
+        return "\n\n".join(sections).strip()
+
     def compose_chat_system_prompt(
         self,
         *,
-        window_preamble: str,
         tool_definitions: str,
         memory_core: str,
         memory_file: str,
         memory_persona: str,
         memory_schedule: str,
         memory_workbook: str,
+        workbench_summary: str,
     ) -> str:
         tools_prompt = compose_tools_prompt(tool_definitions=tool_definitions)
-        base_prompt = "\n\n".join(
-            part
-            for part in (
-                str(window_preamble or "").strip(),
-                _read_section_file(CHAT_BASE_PROMPT_FILE).strip(),
-            )
-            if part
-        ).strip()
+        base_prompt = _read_section_file(CHAT_BASE_PROMPT_FILE).strip()
 
         return render_prompt_template(
             _read_template_file(CHAT_TEMPLATE_FILE),
@@ -83,6 +102,7 @@ class FilePromptTemplateRepository(IPromptTemplateRepository):
                 "SCHEDULE_NOTEBOOK_PROMPT": str(memory_schedule or "").strip(),
                 "WORKBOOK_NOTEBOOK_PROMPT": str(memory_workbook or "").strip(),
                 "MEMORY_PROMPT": str(memory_core or "").strip(),
+                "WORKBENCH_SUMMARY_PROMPT": str(workbench_summary or "").strip(),
             },
         )
 

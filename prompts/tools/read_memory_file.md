@@ -1,0 +1,4 @@
+- `read_memory_file`
+- 作用：读取当前数字员工目录中的记忆文件内容。
+- 必填参数：`file_name`
+- 常用文件名：`file.md`、`soul.md`、`schedule.md`、`workbook.md`、`memory.md`（仅压缩流程可访问）。

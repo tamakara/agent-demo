@@ -167,7 +167,7 @@ class IMemoryRepository(ABC):
         ...
 
     @abstractmethod
-    async def write_memory_file(
+    async def write_notebook_file(
         self,
         *,
         user_id: str,
@@ -245,14 +245,18 @@ class IPromptTemplateRepository(ABC):
     def compose_chat_system_prompt(
         self,
         *,
-        window_preamble: str,
         tool_definitions: str,
         memory_core: str,
         memory_file: str,
         memory_persona: str,
         memory_schedule: str,
         memory_workbook: str,
+        workbench_summary: str,
     ) -> str:
+        ...
+
+    @abstractmethod
+    def compose_tool_definitions(self, *, tool_names: list[str]) -> str:
         ...
 
     @abstractmethod

@@ -1,0 +1,5 @@
+- `list_employee_visible_directory`
+- 作用：按当前数字员工权限列出目录内容。
+- 必填参数：`path`
+- 建议：查看根目录用 `path="/"`；查看素材库用 `path="brand_library"`。
+- 约束：`.memory` 目录不可见，`brand_library` 与 `skill_library` 为只读目录。

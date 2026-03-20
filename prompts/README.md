@@ -6,13 +6,14 @@
 
 - `templates/`：提示词框架文件（只放占位符结构）
 - `sections/`：可复用片段（角色定义、工具策略、任务说明）
+- `tools/`：工具定义片段（按工具名拆分，一个工具一个文件）
 
 ## 调用类型与入口
 
 1. 数字员工会话（chat.completions）
 - 模板：`templates/chat.xml`
 - 片段：`sections/chat_base_prompt.md`、`sections/tools_base_prompt.md`
-- 动态注入：窗口预算、工具清单、记忆文件、工作台摘要
+- 动态注入：工具清单（来自 `tools/*.md`）、记忆文件、工作台摘要
 
 2. 归档压缩（chat.completions）
 - 模板：`templates/compression.xml`

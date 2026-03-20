@@ -150,7 +150,7 @@ class BuiltinToolRunner(IToolRunner):
                 file_name=file_name,
             )
 
-        if normalized_tool_name == "write_memory_file":
+        if normalized_tool_name == "write_notebook_file":
             file_name = self._string_arg(arguments, "file_name")
             mode = self._mode_arg(arguments, "mode", "append")
             normalized_name = str(file_name or "").strip()
@@ -174,7 +174,7 @@ class BuiltinToolRunner(IToolRunner):
                 mode=mode,
                 llm_config=llm_config,
             )
-            return await self.memory_repo.write_memory_file(
+            return await self.memory_repo.write_notebook_file(
                 user_id=user_id,
                 employee_id=employee_id,
                 file_name=file_name,

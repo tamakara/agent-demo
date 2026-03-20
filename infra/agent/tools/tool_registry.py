@@ -28,7 +28,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "write_memory_file",
+            "name": "write_notebook_file",
             "description": (
                 "向当前数字员工记忆文件写入文本。"
                 "受管记忆文件（memory.md/file.md/soul.md/schedule.md/workbook.md）"

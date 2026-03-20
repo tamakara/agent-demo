@@ -27,50 +27,29 @@ class PromptComposer:
         self._truncate_text_to_tokens = truncate_text_to_tokens
         self._template_repository = template_repository
 
-    @staticmethod
-    def render_tool_definitions_from_schema(tool_schemas: list[dict[str, Any]]) -> str:
-        lines: list[str] = []
+    def render_tool_definitions_from_schema(self, tool_schemas: list[dict[str, Any]]) -> str:
+        tool_names: list[str] = []
+        seen: set[str] = set()
         for schema in tool_schemas:
             function_spec = schema.get("function", {})
             if not isinstance(function_spec, dict):
                 continue
 
-            name = str(function_spec.get("name", "")).strip() or "unknown_tool"
-            desc = str(function_spec.get("description", "")).strip() or "无描述"
-            parameters = function_spec.get("parameters", {})
-            required_fields: list[str] = []
-            if isinstance(parameters, dict):
-                raw_required = parameters.get("required", [])
-                if isinstance(raw_required, list):
-                    required_fields = [str(field).strip() for field in raw_required if str(field).strip()]
-
-            required_text = "、".join(required_fields) if required_fields else "无"
-            lines.append(f"- `{name}`：{desc}（必填参数：{required_text}）")
-        return "\n".join(lines).strip()
-
-    @staticmethod
-    def _system_preamble(thresholds: WindowThresholds) -> str:
-        return (
-            f"你正在运行于 {thresholds.total_limit} token 上下文窗口。\n"
-            f"- 固定预算 100% = 系统区 {thresholds.system_prompt_limit}（10%）"
-            f" + 最近区 {thresholds.recent_total_limit}（10%=摘要 {thresholds.summary_limit}"
-            f" + 原始 {thresholds.recent_raw_limit}）"
-            f" + 对话区 {thresholds.dialogue_limit}（80%，工具事件计入此区）。\n"
-            f"- 当非压缩状态下总量超过 {thresholds.compression_trigger} token 会触发压缩。\n"
-            f"- 压缩期间启用临时缓冲区：上限 {thresholds.buffer_limit} token（等于对话区 80%）；"
-            "缓冲区超限时应拒绝新消息并提示稍后重试。\n"
-            "- 请优先复用已有记忆，并在必要时调用工具更新记忆。"
-        )
+            tool_name = str(function_spec.get("name", "")).strip()
+            if not tool_name or tool_name in seen:
+                continue
+            seen.add(tool_name)
+            tool_names.append(tool_name)
+        return self._template_repository.compose_tool_definitions(tool_names=tool_names)
 
     @staticmethod
     def _normalize_memory_text(raw_text: str) -> str:
         text = str(raw_text or "").strip()
         return text or "(暂无内容)"
 
-    def fit_section_to_budget(
+    def clip_text_to_budget(
         self,
         *,
-        section_title: str,
         content: str,
         token_budget: int,
         model: str,
@@ -78,15 +57,13 @@ class PromptComposer:
         if token_budget <= 0:
             return ""
 
-        header = f"## {section_title}\n"
-        header_tokens = self._count_tokens(header, model)
-        content_budget = max(0, token_budget - header_tokens)
-        clipped = self._truncate_text_to_tokens(content.strip(), content_budget, model)
+        normalized_budget = max(1, int(token_budget))
+        clipped = self._truncate_text_to_tokens(content.strip(), normalized_budget, model)
 
-        if not clipped and content_budget > 0:
-            clipped = self._truncate_text_to_tokens("(暂无内容)", content_budget, model)
+        if not clipped:
+            clipped = self._truncate_text_to_tokens("(暂无内容)", normalized_budget, model)
 
-        return f"{header}{clipped}".strip()
+        return clipped.strip()
 
     async def compose_resident_system_text(
         self,
@@ -114,30 +91,24 @@ class PromptComposer:
             memory_entries[file_name] = self._normalize_memory_text(str(content))
 
         system_prompt_payload = self._template_repository.compose_chat_system_prompt(
-            window_preamble=self._system_preamble(thresholds),
             tool_definitions=tool_defs_text.strip(),
             memory_core=self._normalize_memory_text(memory_entries.get(COMPRESSED_MEMORY_FILE, "")),
             memory_file=self._normalize_memory_text(memory_entries.get(ASSET_PLACEHOLDER_FILE, "")),
             memory_persona=self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
             memory_schedule=self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
             memory_workbook=self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),
+            workbench_summary=self.clip_text_to_budget(
+                content=(session.get("workbench_summary") or "").strip() or "(当前暂无工作台摘要)",
+                token_budget=thresholds.summary_limit,
+                model=model,
+            ),
         )
 
-        summary_text = (session.get("workbench_summary") or "").strip() or "(当前暂无工作台摘要)"
-
-        system_prompt_section = self.fit_section_to_budget(
-            section_title=f"系统提示词与记忆文件（预算 {thresholds.system_prompt_limit} token）",
+        return self.clip_text_to_budget(
             content=system_prompt_payload,
-            token_budget=thresholds.system_prompt_limit,
+            token_budget=thresholds.system_prompt_limit + thresholds.summary_limit,
             model=model,
         )
-        summary_section = self.fit_section_to_budget(
-            section_title=f"工作台摘要（预算 {thresholds.summary_limit} token）",
-            content=summary_text,
-            token_budget=thresholds.summary_limit,
-            model=model,
-        )
-        return f"{system_prompt_section}\n\n{summary_section}".strip()
 
     def row_token_count(self, row: dict[str, Any], model: str) -> int:
         raw = row.get("token_count", 0)

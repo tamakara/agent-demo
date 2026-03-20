@@ -363,7 +363,7 @@ class LangGraphAgentEngine(IAgentEngine):
                     "result": payload_result,
                 },
             )
-            if tool_name == "write_memory_file" and not is_error:
+            if tool_name == "write_notebook_file" and not is_error:
                 # 仅在写记忆成功时标记刷新，避免失败结果覆盖有效 system。
                 should_refresh_system = True
 

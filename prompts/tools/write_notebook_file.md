@@ -1,0 +1,12 @@
+- `write_notebook_file`
+- 作用：向当前数字员工记忆文件写入文本。
+- 必填参数：`file_name`、`content`
+- 可选参数：`mode`（`append` 或 `overwrite`，默认 `append`）。
+- 写入触发：仅在用户明确要求记录/更新，或用户确认需要长期沉淀时调用。
+- 路由规则：
+- `file.md`：素材库（`brand_library`）相关笔记。
+- `schedule.md`：日程、提醒、截止日期、时间安排。
+- `soul.md`：员工人格、表达风格、稳定偏好。
+- `workbook.md`：用户要求的工作习惯、流程规范、质量标准。
+- 写入约束：单次调用仅写一个 `file_name`；`content` 应保持可长期复用、去除闲聊噪音。
+- 约束：受管记忆文件超限时应先读取并压缩，再使用 `mode="overwrite"` 整体写回。

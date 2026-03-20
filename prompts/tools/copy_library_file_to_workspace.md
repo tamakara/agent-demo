@@ -1,0 +1,5 @@
+- `copy_library_file_to_workspace`
+- 作用：将 `brand_library` 或 `skill_library` 的文件复制到当前员工 `workspace`。
+- 必填参数：`source_path`
+- 可选参数：`workspace_file_name`
+- 约束：`source_path` 仅支持 `brand_library/...` 或 `skill_library/...`。
