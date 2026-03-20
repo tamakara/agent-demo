@@ -1,0 +1,10 @@
+<dialogue_summary_prompt>
+    <base>
+        {{BASE_PROMPT}}
+    </base>
+    <summary_constraints>
+        <summary_token_limit>
+            {{SUMMARY_TOKEN_LIMIT}}
+        </summary_token_limit>
+    </summary_constraints>
+</dialogue_summary_prompt>

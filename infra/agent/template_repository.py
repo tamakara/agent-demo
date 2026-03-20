@@ -17,11 +17,13 @@ PROMPT_TOOLS_DIR = PROMPTS_DIR / "tools"
 CHAT_TEMPLATE_FILE = "chat.xml"
 COMPRESSION_TEMPLATE_FILE = "compression.xml"
 IMAGE_GENERATION_TEMPLATE_FILE = "image_generation.xml"
+DIALOGUE_SUMMARY_TEMPLATE_FILE = "dialogue_summary.xml"
 
 CHAT_BASE_PROMPT_FILE = "chat_base_prompt.md"
 TOOLS_BASE_PROMPT_FILE = "tools_base_prompt.md"
 COMPRESSION_BASE_PROMPT_FILE = "compression_base_prompt.md"
 IMAGE_GENERATION_BASE_PROMPT_FILE = "image_generation_base_prompt.md"
+DIALOGUE_SUMMARY_BASE_PROMPT_FILE = "dialogue_summary_base_prompt.md"
 
 
 def _read_prompt_file(path: Path) -> str:
@@ -109,24 +111,17 @@ class FilePromptTemplateRepository(IPromptTemplateRepository):
     def compose_compression_system_prompt(
         self,
         *,
-        tool_definitions: str,
-        memory_file_path: str,
+        previous_memory: str,
         memory_token_limit: int,
     ) -> str:
-        tools_prompt = compose_tools_prompt(tool_definitions=tool_definitions)
         normalized_limit = max(1, int(memory_token_limit))
-        base_prompt = render_prompt_template(
-            _read_section_file(COMPRESSION_BASE_PROMPT_FILE).strip(),
-            {
-                "MEMORY_FILE_PATH": str(memory_file_path or ".memory/memory.md").strip(),
-                "MEMORY_TOKEN_LIMIT": str(normalized_limit),
-            },
-        )
+        base_prompt = _read_section_file(COMPRESSION_BASE_PROMPT_FILE).strip()
         return render_prompt_template(
             _read_template_file(COMPRESSION_TEMPLATE_FILE),
             {
                 "BASE_PROMPT": base_prompt,
-                "TOOLS_PROMPT": str(tools_prompt or "").strip(),
+                "PREVIOUS_MEMORY": str(previous_memory or "").strip() or "(暂无内容)",
+                "MEMORY_TOKEN_LIMIT": str(normalized_limit),
             },
         )
 
@@ -136,5 +131,19 @@ class FilePromptTemplateRepository(IPromptTemplateRepository):
             {
                 "BASE_PROMPT": _read_section_file(IMAGE_GENERATION_BASE_PROMPT_FILE).strip(),
                 "USER_PROMPT": str(user_prompt or "").strip(),
+            },
+        )
+
+    def compose_dialogue_summary_system_prompt(
+        self,
+        *,
+        summary_token_limit: int,
+    ) -> str:
+        normalized_limit = max(1, int(summary_token_limit))
+        return render_prompt_template(
+            _read_template_file(DIALOGUE_SUMMARY_TEMPLATE_FILE),
+            {
+                "BASE_PROMPT": _read_section_file(DIALOGUE_SUMMARY_BASE_PROMPT_FILE).strip(),
+                "SUMMARY_TOKEN_LIMIT": str(normalized_limit),
             },
         )

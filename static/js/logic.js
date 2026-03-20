@@ -143,6 +143,11 @@ export const logic = {
     return Number.isFinite(parsed) ? parsed : null;
   },
 
+  parseFloatOrNull(value) {
+    const parsed = parseFloat(String(value ?? "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  },
+
   async ensureTextFileLoaded(path) {
     const targetPath = String(path || "").trim();
     if (!targetPath || !isEditableTextTreePath(targetPath)) return;
@@ -237,6 +242,10 @@ export const logic = {
     const baseUrl = $("baseUrl").value.trim();
     const totalTokenLimit = this.parseIntOrNull($("totalTokenLimit").value);
     const tokenizerModel = String($("tokenizerModel").value || "").trim().toLowerCase();
+    const memoryCapacityRatio = this.parseFloatOrNull($("memoryCapacityRatio").value);
+    const notebookCapacityRatio = this.parseFloatOrNull($("notebookCapacityRatio").value);
+    const dialogueSummaryRatio = this.parseFloatOrNull($("dialogueSummaryRatio").value);
+    const retentionRatio = this.parseFloatOrNull($("retentionRatio").value);
     const deepThinkingEnabled = !!$("deepThinkingEnabled").checked;
 
     if (totalTokenLimit == null) {
@@ -247,6 +256,22 @@ export const logic = {
       ui.notify("请选择合法的 Tokenizer", "error");
       return;
     }
+    if (memoryCapacityRatio == null || memoryCapacityRatio < 0.01 || memoryCapacityRatio > 1) {
+      ui.notify("Memory Capacity Ratio 必须在 0.01 到 1 之间", "error");
+      return;
+    }
+    if (notebookCapacityRatio == null || notebookCapacityRatio < 0.01 || notebookCapacityRatio > 1) {
+      ui.notify("Notebook Capacity Ratio 必须在 0.01 到 1 之间", "error");
+      return;
+    }
+    if (dialogueSummaryRatio == null || dialogueSummaryRatio < 0.01 || dialogueSummaryRatio > 1) {
+      ui.notify("Dialogue Summary Ratio 必须在 0.01 到 1 之间", "error");
+      return;
+    }
+    if (retentionRatio == null || retentionRatio < 0.01 || retentionRatio > 1) {
+      ui.notify("Retention Ratio 必须在 0.01 到 1 之间", "error");
+      return;
+    }
 
     const latest = await api.put(`${userBasePath()}/settings`, {
       model,
@@ -254,6 +279,10 @@ export const logic = {
       base_url: baseUrl,
       total_token_limit: totalTokenLimit,
       tokenizer_model: tokenizerModel,
+      memory_capacity_ratio: memoryCapacityRatio,
+      notebook_capacity_ratio: notebookCapacityRatio,
+      dialogue_summary_ratio: dialogueSummaryRatio,
+      retention_ratio: retentionRatio,
       deep_thinking_enabled: deepThinkingEnabled
     });
     state.settings = latest || null;

@@ -9,9 +9,12 @@ from typing import Any, cast
 from app.errors import NotFoundError, ValidationError
 from app.interfaces import IClock, IMemoryRepository, ITokenCounter, IToolRunner
 from app.memory_specs import (
+    COMPRESSED_MEMORY_DIR,
     COMPRESSED_MEMORY_FILE,
-    managed_memory_file_spec,
+    DEFAULT_MEMORY_CAPACITY_RATIO,
+    DEFAULT_NOTEBOOK_CAPACITY_RATIO,
     memory_file_token_limit,
+    notebook_total_token_limit,
 )
 from domain.models import LLMConfig
 from infra.agent.tools.image_tool import ImageToolService
@@ -70,31 +73,101 @@ class BuiltinToolRunner(IToolRunner):
         total_limit = int(getattr(llm_config, "total_token_limit", 200000) or 200000)
         return max(1, total_limit)
 
+    @staticmethod
+    def _tokenizer_model(llm_config: LLMConfig | None) -> str:
+        return str(getattr(llm_config, "tokenizer_model", "kimi-k2.5") or "kimi-k2.5")
+
+    def _memory_relative_path(self, file_name: str) -> str:
+        relative = self.memory_repo.memory_relative_path(file_name)
+        return str(relative or "").replace("\\", "/").strip()
+
+    def _is_notebook_memory_file(self, file_name: str) -> bool:
+        relative_path = self._memory_relative_path(file_name)
+        return relative_path.startswith("notebook/")
+
+    def _is_compressed_memory_file(self, file_name: str) -> bool:
+        relative_path = self._memory_relative_path(file_name)
+        return relative_path == f"{COMPRESSED_MEMORY_DIR}/{COMPRESSED_MEMORY_FILE}"
+
+    def _dynamic_notebook_file_token_limit(
+        self,
+        *,
+        user_id: str,
+        employee_id: str,
+        file_name: str,
+        llm_config: LLMConfig | None,
+    ) -> tuple[int, int, int]:
+        total_limit = self._total_token_limit(llm_config)
+        notebook_total_limit = notebook_total_token_limit(
+            total_limit,
+            notebook_capacity_ratio=getattr(
+                llm_config,
+                "notebook_capacity_ratio",
+                DEFAULT_NOTEBOOK_CAPACITY_RATIO,
+            ),
+        )
+        existing_files: set[str] = set()
+        for existing_name in self.memory_repo.list_memory_file_names(user_id, employee_id):
+            normalized = str(existing_name or "").strip()
+            if not normalized:
+                continue
+            if self._is_notebook_memory_file(normalized):
+                existing_files.add(normalized)
+        existing_files.add(file_name)
+        notebook_file_count = max(1, len(existing_files))
+        per_file_limit = max(1, int(notebook_total_limit / notebook_file_count))
+        return per_file_limit, notebook_total_limit, notebook_file_count
+
     async def _assert_memory_file_token_limit(
         self,
         *,
+        user_id: str,
+        employee_id: str,
         file_name: str,
         content: str,
         mode: str,
         llm_config: LLMConfig | None,
     ) -> None:
-        """校验写入后的受管记忆文件大小是否超限。"""
-        spec = managed_memory_file_spec(file_name)
-        if spec is None:
+        """校验写入后的记忆文件大小是否超限。"""
+        normalized_name = str(file_name or "").strip()
+        if not normalized_name:
             return
-        token_limit = memory_file_token_limit(file_name, self._total_token_limit(llm_config))
-        if token_limit is None:
-            return
-        tokenizer_model = str(getattr(llm_config, "tokenizer_model", "kimi-k2.5") or "kimi-k2.5")
+        tokenizer_model = self._tokenizer_model(llm_config)
         token_count = self.token_counter.count_tokens(content, tokenizer_model)
-        if token_count <= token_limit:
-            return
-        ratio_pct = int(spec.token_limit_ratio * 100)
         action = "追加" if mode == "append" else "覆盖"
+
+        if self._is_compressed_memory_file(normalized_name):
+            token_limit = memory_file_token_limit(
+                normalized_name,
+                self._total_token_limit(llm_config),
+                memory_capacity_ratio=getattr(llm_config, "memory_capacity_ratio", DEFAULT_MEMORY_CAPACITY_RATIO),
+            )
+            if token_limit is None or token_count <= token_limit:
+                return
+            total_limit = self._total_token_limit(llm_config)
+            ratio_pct = max(1, int((token_limit * 100) / max(1, total_limit)))
+            raise ValidationError(
+                f"{action}写入失败：{normalized_name} 超过大小限制。"
+                f"当前 {token_count} token，限制 {token_limit} token（total_token_limit 的 {ratio_pct}%）。"
+                "请读取原内容并压缩该记忆文件，再使用 mode='overwrite' 整体写回。"
+            )
+
+        if not self._is_notebook_memory_file(normalized_name):
+            return
+
+        per_file_limit, notebook_total_limit, notebook_file_count = self._dynamic_notebook_file_token_limit(
+            user_id=user_id,
+            employee_id=employee_id,
+            file_name=normalized_name,
+            llm_config=llm_config,
+        )
+        if token_count <= per_file_limit:
+            return
         raise ValidationError(
-            f"{action}写入失败：{file_name} 超过大小限制。"
-            f"当前 {token_count} token，限制 {token_limit} token（total_token_limit 的 {ratio_pct}%）。"
-            "请读取原内容并压缩该记忆文件，再使用 mode='overwrite' 整体写回。"
+            f"{action}写入失败：{normalized_name} 超过 notebook 文件容量限制。"
+            f"当前 {token_count} token，单文件限制 {per_file_limit} token；"
+            f"notebook 总预算 {notebook_total_limit} token，当前分摊文件数 {notebook_file_count}。"
+            "请减少内容后重试，或先读取原内容压缩后使用 mode='overwrite' 整体写回。"
         )
 
     async def _content_after_write(
@@ -160,7 +233,7 @@ class BuiltinToolRunner(IToolRunner):
             )
             content = self._string_arg(arguments, "content")
             resulting_content = content
-            if managed_memory_file_spec(normalized_name) is not None:
+            if normalized_name:
                 resulting_content = await self._content_after_write(
                     user_id=user_id,
                     employee_id=employee_id,
@@ -169,6 +242,8 @@ class BuiltinToolRunner(IToolRunner):
                     mode=mode,
                 )
             await self._assert_memory_file_token_limit(
+                user_id=user_id,
+                employee_id=employee_id,
                 file_name=normalized_name,
                 content=resulting_content,
                 mode=mode,

@@ -1,8 +1,13 @@
-﻿<compression_prompt>
+<compression_prompt>
     <base>
         {{BASE_PROMPT}}
     </base>
-    <tools>
-        {{TOOLS_PROMPT}}
-    </tools>
+    <memory_constraints>
+        <memory_token_limit>
+            {{MEMORY_TOKEN_LIMIT}}
+        </memory_token_limit>
+    </memory_constraints>
+    <previous_memory>
+        {{PREVIOUS_MEMORY}}
+    </previous_memory>
 </compression_prompt>

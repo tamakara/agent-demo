@@ -70,7 +70,7 @@ class PromptComposer:
         *,
         user_id: str,
         employee_id: str,
-        session: dict[str, Any],
+        workbench_summary: str,
         model: str,
         thresholds: WindowThresholds,
         read_memory_file,
@@ -90,6 +90,11 @@ class PromptComposer:
                 content = ""
             memory_entries[file_name] = self._normalize_memory_text(str(content))
 
+        summary_text = self.clip_text_to_budget(
+            content=self._normalize_memory_text(workbench_summary),
+            token_budget=thresholds.summary_token_limit,
+            model=model,
+        )
         system_prompt_payload = self._template_repository.compose_chat_system_prompt(
             tool_definitions=tool_defs_text.strip(),
             memory_core=self._normalize_memory_text(memory_entries.get(COMPRESSED_MEMORY_FILE, "")),
@@ -97,16 +102,12 @@ class PromptComposer:
             memory_persona=self._normalize_memory_text(memory_entries.get(PERSONA_FILE, "")),
             memory_schedule=self._normalize_memory_text(memory_entries.get(SCHEDULE_FILE, "")),
             memory_workbook=self._normalize_memory_text(memory_entries.get(WORKBOOK_FILE, "")),
-            workbench_summary=self.clip_text_to_budget(
-                content=(session.get("workbench_summary") or "").strip() or "(当前暂无工作台摘要)",
-                token_budget=thresholds.summary_limit,
-                model=model,
-            ),
+            workbench_summary=summary_text,
         )
 
         return self.clip_text_to_budget(
             content=system_prompt_payload,
-            token_budget=thresholds.system_prompt_limit + thresholds.summary_limit,
+            token_budget=thresholds.system_prompt_limit,
             model=model,
         )
 

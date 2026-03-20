@@ -49,6 +49,7 @@
 - 必填参数：`file_name`、`content`；`mode` 未指定时默认 `append`。
 - `content` 只写可长期复用的信息，避免写入寒暄语、过程噪音和无关上下文。
 - 受管记忆文件（`memory.md`、`soul.md`、`schedule.md`、`workbook.md`、`file.md`）通常可用 `append` 追加更新。
+- 容量限制：`memory.md` 走独立比例；`notebook/*.md` 走 notebook 总容量动态平分，写入前需考虑分摊后上限。
 - 若 `append` 或 `overwrite` 后因 token 超限失败，必须先调用 `read_memory_file` 读取原文，再基于“原文 + 新信息”合并压缩后，用 `mode="overwrite"` 整体写回。
 - 出现超限错误时不要重复盲目追加，避免反复失败。
 

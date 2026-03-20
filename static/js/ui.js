@@ -313,6 +313,10 @@ export const ui = {
     $("totalTokenLimit").value = settings.total_token_limit != null ? String(settings.total_token_limit) : "";
     const tokenizerModel = String(settings.tokenizer_model || "").trim().toLowerCase();
     $("tokenizerModel").value = TOKENIZER_OPTIONS.includes(tokenizerModel) ? tokenizerModel : DEFAULT_TOKENIZER_MODEL;
+    $("memoryCapacityRatio").value = settings.memory_capacity_ratio != null ? String(settings.memory_capacity_ratio) : "0.1";
+    $("notebookCapacityRatio").value = settings.notebook_capacity_ratio != null ? String(settings.notebook_capacity_ratio) : "0.04";
+    $("dialogueSummaryRatio").value = settings.dialogue_summary_ratio != null ? String(settings.dialogue_summary_ratio) : "0.05";
+    $("retentionRatio").value = settings.retention_ratio != null ? String(settings.retention_ratio) : "0.1";
     $("deepThinkingEnabled").checked = !!settings.deep_thinking_enabled;
   },
 

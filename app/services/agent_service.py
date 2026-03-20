@@ -28,7 +28,7 @@ from app.interfaces import (
     ITokenCounter,
     IToolSchemaProvider,
 )
-from app.memory_specs import COMPRESSED_MEMORY_FILE, memory_file_token_limit
+from app.memory_specs import COMPRESSED_MEMORY_FILE
 from app.prompt_composer import PromptComposer
 from app.services.session_lock_registry import SessionLockRegistry
 from app.services.window_config_service import DEFAULT_TOKENIZER_MODEL, WindowConfigService
@@ -160,12 +160,16 @@ class AgentService:
         tokenizer_model: str,
         thresholds: WindowThresholds,
     ) -> str:
-        """构建常驻 system 文本（记忆文件 + 摘要 + 工具说明）。"""
-        session = await self.session_repo.get_session(user_id, session_id)
+        """构建常驻 system 文本（记忆文件 + 工具说明）。"""
+        try:
+            session = await self.session_repo.get_session(user_id, session_id)
+            workbench_summary = str(session.get("workbench_summary", "") or "")
+        except Exception:  # noqa: BLE001
+            workbench_summary = ""
         return await self.prompt_composer.compose_resident_system_text(
             user_id=user_id,
             employee_id=employee_id,
-            session=session,
+            workbench_summary=workbench_summary,
             model=tokenizer_model,
             thresholds=thresholds,
             read_memory_file=self.memory_repo.read_memory_file,
@@ -175,8 +179,61 @@ class AgentService:
     @classmethod
     def _compression_memory_token_limit(cls, thresholds: WindowThresholds) -> int:
         """计算压缩流程可写入 `memory.md` 的 token 上限。"""
-        limit = memory_file_token_limit(COMPRESSED_MEMORY_FILE, thresholds.total_limit)
-        return max(1, int(limit or 1))
+        return max(1, int(thresholds.memory_token_limit))
+
+    @classmethod
+    def _compression_summary_token_limit(cls, thresholds: WindowThresholds) -> int:
+        """计算压缩前对话摘要的 token 上限。"""
+        return max(1, int(thresholds.summary_token_limit))
+
+    async def _summarize_dialogue_before_compression(
+        self,
+        *,
+        user_id: str,
+        employee_id: str,
+        session_id: str,
+        llm_config: LLMConfig,
+        dialogue_text: str,
+        tokenizer_model: str,
+        summary_token_limit: int,
+        max_rounds: int = 4,
+    ) -> str:
+        """基于本轮 dialogue 生成压缩前摘要。"""
+        source_text = str(dialogue_text or "").strip()
+        if not source_text:
+            return ""
+
+        summary_system_prompt = self.prompt_templates.compose_dialogue_summary_system_prompt(
+            summary_token_limit=summary_token_limit,
+        )
+        rolling_text = source_text
+        for _ in range(max(1, int(max_rounds))):
+            summary_messages = [
+                {"role": "system", "content": summary_system_prompt},
+                {"role": "user", "content": f"请总结以下对话内容：\n\n{rolling_text}"},
+            ]
+            summary_result = await self.agent_engine.process(
+                user_id=user_id,
+                employee_id=employee_id,
+                session_id=session_id,
+                messages=summary_messages,
+                llm_config=llm_config,
+                max_tool_rounds=1,
+                allow_hidden_memory_files=False,
+                disable_tools=True,
+            )
+            candidate_summary = summary_result.assistant_text.strip() or rolling_text
+            candidate_tokens = self.token_counter.count_tokens(candidate_summary, tokenizer_model)
+            if candidate_tokens <= summary_token_limit:
+                return candidate_summary
+            rolling_text = candidate_summary
+
+        clipped = self.token_counter.truncate_text_to_tokens(
+            rolling_text,
+            summary_token_limit,
+            tokenizer_model,
+        ).strip()
+        return clipped or "(暂无内容)"
 
     async def _build_chat_messages(
         self,
@@ -204,7 +261,7 @@ class AgentService:
         )
         resident_recent = self.prompt_composer.take_latest_rows_by_token_budget(
             rows_ascending=resident_recent_all,
-            token_budget=thresholds.recent_raw_limit,
+            token_budget=thresholds.retention_limit,
             model=tokenizer_model,
         )
 
@@ -268,7 +325,7 @@ class AgentService:
         )
         resident_recent_limited = self.prompt_composer.take_latest_rows_by_token_budget(
             rows_ascending=resident_recent_all,
-            token_budget=thresholds.recent_raw_limit,
+            token_budget=thresholds.retention_limit,
             model=tokenizer_model,
         )
         resident_recent_tokens = sum(
@@ -466,8 +523,6 @@ class AgentService:
     ) -> None:
         """执行压缩流程并重建窗口分区。"""
         lock = await self._get_session_lock(user_id, session_id)
-        max_tool_rounds = self._resolve_max_tool_rounds(llm_config)
-
         async with lock:
             await self.session_repo.ensure_session(user_id, session_id)
             session = await self.session_repo.get_session(user_id, session_id)
@@ -478,8 +533,18 @@ class AgentService:
                 user_id,
                 fallback_model=llm_config.model,
             )
+            await self.memory_repo.ensure_memory_files_exist(user_id, employee_id)
 
-            # 读取旧 dialogue 作为归档输入。
+            try:
+                previous_memory = await self.memory_repo.read_memory_file(
+                    user_id=user_id,
+                    employee_id=employee_id,
+                    file_name=COMPRESSED_MEMORY_FILE,
+                )
+            except Exception:  # noqa: BLE001
+                previous_memory = ""
+
+            # 读取旧 dialogue 作为压缩输入。
             dialogue_rows = await self.message_repo.list_messages(
                 user_id,
                 session_id,
@@ -490,34 +555,62 @@ class AgentService:
                 [f"[{row['role']}] {row['content']}" for row in dialogue_rows if str(row["content"]).strip()]
             )
 
-        summary_text = "（无新增对话，保持原摘要）"
+        final_memory_text = previous_memory.strip() or "(暂无内容)"
+        memory_token_limit = self._compression_memory_token_limit(thresholds)
+        summary_token_limit = self._compression_summary_token_limit(thresholds)
+        dialogue_summary_text: str | None = None
 
         try:
             if dialogue_text.strip():
-                # 对话非空时，调用 LLM 执行摘要归档（允许隐藏记忆文件工具）。
-                tool_defs_text = self.prompt_composer.render_tool_definitions_from_schema(self._list_tool_schemas())
-                memory_token_limit = self._compression_memory_token_limit(thresholds)
-                archive_messages = [
-                    {
-                        "role": "system",
-                        "content": self.prompt_templates.compose_compression_system_prompt(
-                            tool_definitions=tool_defs_text,
-                            memory_file_path=f"employee/{employee_id}/.memory/{COMPRESSED_MEMORY_FILE}",
-                            memory_token_limit=memory_token_limit,
-                        ),
-                    },
-                    {"role": "user", "content": f"以下是待归档对话记录：\n\n{dialogue_text}"},
-                ]
-                archive_result = await self.agent_engine.process(
-                    user_id=user_id,
-                    employee_id=employee_id,
-                    session_id=session_id,
-                    messages=archive_messages,
-                    llm_config=llm_config,
-                    max_tool_rounds=max_tool_rounds,
-                    allow_hidden_memory_files=True,
+                try:
+                    dialogue_summary_text = await self._summarize_dialogue_before_compression(
+                        user_id=user_id,
+                        employee_id=employee_id,
+                        session_id=session_id,
+                        llm_config=llm_config,
+                        dialogue_text=dialogue_text,
+                        tokenizer_model=tokenizer_model,
+                        summary_token_limit=summary_token_limit,
+                    )
+                except Exception:  # noqa: BLE001
+                    # 摘要失败不影响主压缩流程，继续执行 memory.md 归档。
+                    dialogue_summary_text = None
+
+            rolling_memory = final_memory_text
+            requires_recompression = bool(dialogue_text.strip())
+            if not requires_recompression:
+                requires_recompression = (
+                    self.token_counter.count_tokens(rolling_memory, tokenizer_model) > memory_token_limit
                 )
-                summary_text = archive_result.assistant_text.strip() or summary_text
+            if requires_recompression:
+                dialogue_payload = dialogue_text.strip() or "（本轮无新增对话，仅压缩旧记忆）"
+                while True:
+                    archive_messages = [
+                        {
+                            "role": "system",
+                            "content": self.prompt_templates.compose_compression_system_prompt(
+                                previous_memory=rolling_memory,
+                                memory_token_limit=memory_token_limit,
+                            ),
+                        },
+                        {"role": "user", "content": f"以下是需要滚动归档的新对话：\n\n{dialogue_payload}"},
+                    ]
+                    archive_result = await self.agent_engine.process(
+                        user_id=user_id,
+                        employee_id=employee_id,
+                        session_id=session_id,
+                        messages=archive_messages,
+                        llm_config=llm_config,
+                        max_tool_rounds=1,
+                        allow_hidden_memory_files=False,
+                        disable_tools=True,
+                    )
+                    candidate_memory = archive_result.assistant_text.strip() or rolling_memory
+                    candidate_tokens = self.token_counter.count_tokens(candidate_memory, tokenizer_model)
+                    if candidate_tokens <= memory_token_limit:
+                        final_memory_text = candidate_memory
+                        break
+                    rolling_memory = candidate_memory
 
             async with lock:
                 # 按预算回收最近对话，同时把压缩期 buffer 迁回 dialogue。
@@ -538,8 +631,21 @@ class AgentService:
                 )
                 latest_dialogue = self.prompt_composer.take_latest_rows_from_desc_by_budget(
                     rows_descending=latest_dialogue_desc,
-                    token_budget=thresholds.recent_raw_limit,
+                    token_budget=thresholds.retention_limit,
                     model=tokenizer_model,
+                )
+                if dialogue_summary_text is not None and dialogue_summary_text.strip():
+                    await self.session_repo.set_workbench_summary(
+                        user_id,
+                        session_id,
+                        dialogue_summary_text,
+                    )
+                await self.memory_repo.write_notebook_file(
+                    user_id=user_id,
+                    employee_id=employee_id,
+                    file_name=COMPRESSED_MEMORY_FILE,
+                    content=final_memory_text,
+                    mode="overwrite",
                 )
 
                 # 清空后重建两个分区：resident_recent（保留上下文）+ dialogue（承接压缩期增量）。
@@ -569,8 +675,6 @@ class AgentService:
                         zone="dialogue",
                         token_count=self.prompt_composer.row_token_count(row, tokenizer_model),
                     )
-
-                await self.session_repo.update_workbench_summary(user_id, session_id, summary_text)
                 await self.session_repo.set_is_compressing(user_id, session_id, False)
         except Exception:  # noqa: BLE001
             # 任意异常都必须回收压缩标记，防止会话被永久锁死在压缩态。

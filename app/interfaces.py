@@ -47,7 +47,7 @@ class ISessionRepository(ABC):
         ...
 
     @abstractmethod
-    async def update_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
+    async def set_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
         ...
 
 
@@ -194,6 +194,7 @@ class IAgentEngine(ABC):
         on_event: EventCallback | None = None,
         refresh_system_message: SystemMessageRefresher | None = None,
         allow_hidden_memory_files: bool = False,
+        disable_tools: bool = False,
     ) -> LLMRunResult:
         ...
 
@@ -263,9 +264,16 @@ class IPromptTemplateRepository(ABC):
     def compose_compression_system_prompt(
         self,
         *,
-        tool_definitions: str,
-        memory_file_path: str,
+        previous_memory: str,
         memory_token_limit: int,
+    ) -> str:
+        ...
+
+    @abstractmethod
+    def compose_dialogue_summary_system_prompt(
+        self,
+        *,
+        summary_token_limit: int,
     ) -> str:
         ...
 

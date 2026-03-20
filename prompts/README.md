@@ -13,12 +13,12 @@
 1. 数字员工会话（chat.completions）
 - 模板：`templates/chat.xml`
 - 片段：`sections/chat_base_prompt.md`、`sections/tools_base_prompt.md`
-- 动态注入：工具清单（来自 `tools/*.md`）、记忆文件、工作台摘要
+- 动态注入：工具清单（来自 `tools/*.md`）、记忆文件
 
 2. 归档压缩（chat.completions）
 - 模板：`templates/compression.xml`
 - 片段：`sections/compression_base_prompt.md`
-- 动态注入：会话常驻 system 文本
+- 动态注入：旧 `memory.md` 文本与压缩上限
 
 3. 画图模型（images.generate）
 - 模板：`templates/image_generation.xml`

@@ -32,7 +32,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "description": (
                 "向当前数字员工记忆文件写入文本。"
                 "受管记忆文件（memory.md/file.md/soul.md/schedule.md/workbook.md）"
-                "默认可 append 或 overwrite；若写入后超过 total_token_limit 比例限制会报错，"
+                "默认可 append 或 overwrite；"
+                "memory.md 按 memory_capacity_ratio 限制，notebook/*.md 按 notebook_capacity_ratio 动态平分限制；"
+                "若写入后超过限制会报错，"
                 "需压缩后用 overwrite 整体写回。"
             ),
             "parameters": {

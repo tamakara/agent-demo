@@ -213,6 +213,10 @@ def create_router(container: AppContainer) -> APIRouter:
                         "max_tool_rounds": FIXED_MAX_TOOL_ROUNDS,
                         "total_token_limit": settings.total_token_limit,
                         "tokenizer_model": settings.tokenizer_model,
+                        "memory_capacity_ratio": settings.memory_capacity_ratio,
+                        "notebook_capacity_ratio": settings.notebook_capacity_ratio,
+                        "dialogue_summary_ratio": settings.dialogue_summary_ratio,
+                        "retention_ratio": settings.retention_ratio,
                         "deep_thinking_enabled": settings.deep_thinking_enabled,
                     },
                 )
@@ -236,6 +240,10 @@ def create_router(container: AppContainer) -> APIRouter:
                 base_url=body.base_url,
                 total_token_limit=body.total_token_limit,
                 tokenizer_model=body.tokenizer_model,
+                memory_capacity_ratio=body.memory_capacity_ratio,
+                notebook_capacity_ratio=body.notebook_capacity_ratio,
+                dialogue_summary_ratio=body.dialogue_summary_ratio,
+                retention_ratio=body.retention_ratio,
                 deep_thinking_enabled=body.deep_thinking_enabled,
             )
             return JSONResponse(
@@ -248,6 +256,10 @@ def create_router(container: AppContainer) -> APIRouter:
                         "max_tool_rounds": FIXED_MAX_TOOL_ROUNDS,
                         "total_token_limit": latest.total_token_limit,
                         "tokenizer_model": latest.tokenizer_model,
+                        "memory_capacity_ratio": latest.memory_capacity_ratio,
+                        "notebook_capacity_ratio": latest.notebook_capacity_ratio,
+                        "dialogue_summary_ratio": latest.dialogue_summary_ratio,
+                        "retention_ratio": latest.retention_ratio,
                         "deep_thinking_enabled": latest.deep_thinking_enabled,
                     },
                 )

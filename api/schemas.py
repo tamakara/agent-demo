@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 
 TOKENIZER_MODEL_OPTIONS = ("kimi-k2.5",)
@@ -68,6 +68,10 @@ class SettingsUpdateBody(BaseModel):
     base_url: str | None = Field(default="http://model-gateway.test.api.dotai.internal/v1")
     total_token_limit: int = Field(default=200000, ge=20000, le=2000000)
     tokenizer_model: Literal["kimi-k2.5"] = Field(default=DEFAULT_TOKENIZER_MODEL)
+    memory_capacity_ratio: float = Field(default=0.10, ge=0.01, le=1.0)
+    notebook_capacity_ratio: float = Field(default=0.04, ge=0.01, le=1.0)
+    dialogue_summary_ratio: float = Field(default=0.05, ge=0.01, le=1.0)
+    retention_ratio: float = Field(default=0.10, ge=0.01, le=1.0)
     deep_thinking_enabled: bool = Field(default=False)
 
     @field_validator("model", mode="before")
@@ -135,3 +139,28 @@ class SettingsUpdateBody(BaseModel):
             if text in {"0", "false", "no", "off"}:
                 return False
         raise TypeError("deep_thinking_enabled 必须是布尔值")
+
+    @field_validator(
+        "memory_capacity_ratio",
+        "notebook_capacity_ratio",
+        "dialogue_summary_ratio",
+        "retention_ratio",
+        mode="before",
+    )
+    @classmethod
+    def normalize_ratio_fields(cls, value: Any, info: ValidationInfo) -> float:
+        default_by_field = {
+            "memory_capacity_ratio": 0.10,
+            "notebook_capacity_ratio": 0.04,
+            "dialogue_summary_ratio": 0.05,
+            "retention_ratio": 0.10,
+        }
+        fallback = float(default_by_field.get(info.field_name, 0.10))
+        if value is None or value == "":
+            return fallback
+        if isinstance(value, bool):
+            raise TypeError("比例字段必须是数字")
+        try:
+            return float(value)
+        except Exception as exc:  # noqa: BLE001
+            raise TypeError("比例字段必须是数字") from exc

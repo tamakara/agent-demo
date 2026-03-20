@@ -40,4 +40,13 @@ class WindowConfigService:
             settings.tokenizer_model,
             fallback_model=fallback_model,
         )
-        return WindowThresholds.from_total_limit(parsed_total_limit), tokenizer_model
+        return (
+            WindowThresholds.from_total_limit(
+                parsed_total_limit,
+                memory_capacity_ratio=settings.memory_capacity_ratio,
+                notebook_capacity_ratio=settings.notebook_capacity_ratio,
+                dialogue_summary_ratio=settings.dialogue_summary_ratio,
+                retention_ratio=settings.retention_ratio,
+            ),
+            tokenizer_model,
+        )

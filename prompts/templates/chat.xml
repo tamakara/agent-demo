@@ -22,7 +22,7 @@
     <memory>
         {{MEMORY_PROMPT}}
     </memory>
-    <workbench_summary>
+    <dialogue_summary>
         {{WORKBENCH_SUMMARY_PROMPT}}
-    </workbench_summary>
+    </dialogue_summary>
 </chat_prompt>

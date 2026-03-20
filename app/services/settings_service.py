@@ -44,6 +44,10 @@ class SettingsService:
         base_url: str | None,
         total_token_limit: int,
         tokenizer_model: str,
+        memory_capacity_ratio: float,
+        notebook_capacity_ratio: float,
+        dialogue_summary_ratio: float,
+        retention_ratio: float,
         deep_thinking_enabled: bool,
     ) -> GlobalSettings:
         """更新用户设置。
@@ -59,6 +63,10 @@ class SettingsService:
             max_tool_rounds=FIXED_MAX_TOOL_ROUNDS,
             total_token_limit=total_token_limit,
             tokenizer_model=tokenizer_model,
+            memory_capacity_ratio=float(memory_capacity_ratio),
+            notebook_capacity_ratio=float(notebook_capacity_ratio),
+            dialogue_summary_ratio=float(dialogue_summary_ratio),
+            retention_ratio=float(retention_ratio),
             deep_thinking_enabled=bool(deep_thinking_enabled),
         )
         return await self.settings_repo.update_global_settings(settings)

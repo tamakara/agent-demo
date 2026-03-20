@@ -74,6 +74,7 @@ class _RuntimeContext:
     session_id: str
     llm_config: LLMConfig
     max_tool_rounds: int
+    disable_tools: bool
     allow_hidden_memory_files: bool
     on_event: EventCallback | None
     refresh_system_message: SystemMessageRefresher | None
@@ -122,6 +123,7 @@ class LangGraphAgentEngine(IAgentEngine):
         on_event: EventCallback | None = None,
         refresh_system_message: SystemMessageRefresher | None = None,
         allow_hidden_memory_files: bool = False,
+        disable_tools: bool = False,
     ) -> LLMRunResult:
         """执行一次完整图调用并返回应用层统一结果。
 
@@ -138,11 +140,12 @@ class LangGraphAgentEngine(IAgentEngine):
             session_id=session_id,
             llm_config=llm_config,
             max_tool_rounds=max(1, int(max_tool_rounds or 1)),
+            disable_tools=bool(disable_tools),
             allow_hidden_memory_files=allow_hidden_memory_files,
             on_event=on_event,
             refresh_system_message=refresh_system_message,
             turn_ns=turn_ns,
-            bound_model=self._create_bound_model(llm_config),
+            bound_model=self._create_bound_model(llm_config, disable_tools=disable_tools),
             tool_events=[],
         )
         token = self._runtime_ctx.set(runtime)
@@ -200,7 +203,7 @@ class LangGraphAgentEngine(IAgentEngine):
         graph.add_edge("tools", "reasoning")
         return graph.compile(checkpointer=self._checkpointer)
 
-    def _create_bound_model(self, llm_config: LLMConfig) -> Any:
+    def _create_bound_model(self, llm_config: LLMConfig, *, disable_tools: bool = False) -> Any:
         """创建并返回绑定工具后的 ChatOpenAI 模型对象。"""
         extra_body = self._resolve_chat_extra_body(llm_config)
         model = ChatOpenAI(
@@ -211,6 +214,8 @@ class LangGraphAgentEngine(IAgentEngine):
             temperature=1.0,
             extra_body=extra_body,
         )
+        if disable_tools:
+            return model
         return model.bind_tools(self._tool_schemas)
 
     @staticmethod
@@ -271,6 +276,21 @@ class LangGraphAgentEngine(IAgentEngine):
         reached_tool_limit = bool(state.get("reached_tool_limit", False))
         effective_message: AIMessage = response
         max_tool_rounds = int(state.get("max_tool_rounds", runtime.max_tool_rounds))
+
+        if runtime.disable_tools and has_tool_calls:
+            # 压缩等禁工具场景下，硬性剥离 tool_calls，避免进入工具节点。
+            effective_message = AIMessage(content=self._coerce_text(response.content))
+            has_tool_calls = False
+            tool_call_count = 0
+            await self._emit_event(
+                runtime,
+                {
+                    "event": "graph_error",
+                    "stage": "routing",
+                    "round": round_index,
+                    "error": "tool_calls_blocked_disable_tools",
+                },
+            )
 
         if has_tool_calls and round_index >= max_tool_rounds:
             # 到达工具轮次上限时，强制终止工具分支并返回可读兜底文案。
@@ -374,6 +394,9 @@ class LangGraphAgentEngine(IAgentEngine):
 
     def _route_after_reasoning(self, state: AgentState) -> Literal["tools", "end"]:
         """根据最新 AIMessage 是否包含工具调用决定下一跳。"""
+        runtime = self._require_runtime()
+        if runtime.disable_tools:
+            return "end"
         if bool(state.get("reached_tool_limit", False)):
             return "end"
         latest_ai = self._last_ai_message(state.get("messages", []))

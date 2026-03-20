@@ -8,8 +8,13 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from app.interfaces import IMessageRepository, ISettingsRepository, ISessionRepository
+from app.memory_specs import (
+    DEFAULT_DIALOGUE_SUMMARY_RATIO,
+    DEFAULT_MEMORY_CAPACITY_RATIO,
+    DEFAULT_NOTEBOOK_CAPACITY_RATIO,
+)
+from app.window_policy import DEFAULT_RETENTION_RATIO, DEFAULT_TOTAL_LIMIT
 from domain.models import GlobalSettings
-from app.window_policy import DEFAULT_TOTAL_LIMIT
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "agent_state.db"
@@ -19,6 +24,10 @@ DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 DEFAULT_LLM_MAX_TOOL_ROUNDS = 64
 DEFAULT_TOKENIZER_MODEL = "kimi-k2.5"
 DEFAULT_DEEP_THINKING_ENABLED = 0
+DEFAULT_MEMORY_CAPACITY_RATIO_SQL = DEFAULT_MEMORY_CAPACITY_RATIO
+DEFAULT_NOTEBOOK_CAPACITY_RATIO_SQL = DEFAULT_NOTEBOOK_CAPACITY_RATIO
+DEFAULT_DIALOGUE_SUMMARY_RATIO_SQL = DEFAULT_DIALOGUE_SUMMARY_RATIO
+DEFAULT_RETENTION_RATIO_SQL = DEFAULT_RETENTION_RATIO
 GLOBAL_LLM_SELECT_SQL = """
 SELECT
     llm_model,
@@ -27,6 +36,10 @@ SELECT
     llm_max_tool_rounds,
     context_total_token_limit,
     tokenizer_model,
+    memory_capacity_ratio,
+    notebook_capacity_ratio,
+    dialogue_summary_ratio,
+    retention_ratio,
     deep_thinking_enabled
 FROM app_settings
 WHERE user_id = ?;
@@ -63,6 +76,43 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
         """读取用户全局 LLM 配置行。"""
         return conn.execute(GLOBAL_LLM_SELECT_SQL, (user_id,)).fetchone()
 
+    @staticmethod
+    def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+        rows = conn.execute(f"PRAGMA table_info({table_name});").fetchall()
+        return {str(row["name"]).strip() for row in rows if str(row["name"]).strip()}
+
+    @classmethod
+    def _ensure_app_settings_columns(cls, conn: sqlite3.Connection) -> None:
+        columns = cls._table_columns(conn, "app_settings")
+        if "memory_capacity_ratio" not in columns:
+            conn.execute(
+                (
+                    "ALTER TABLE app_settings "
+                    f"ADD COLUMN memory_capacity_ratio REAL NOT NULL DEFAULT {DEFAULT_MEMORY_CAPACITY_RATIO_SQL};"
+                )
+            )
+        if "notebook_capacity_ratio" not in columns:
+            conn.execute(
+                (
+                    "ALTER TABLE app_settings "
+                    f"ADD COLUMN notebook_capacity_ratio REAL NOT NULL DEFAULT {DEFAULT_NOTEBOOK_CAPACITY_RATIO_SQL};"
+                )
+            )
+        if "dialogue_summary_ratio" not in columns:
+            conn.execute(
+                (
+                    "ALTER TABLE app_settings "
+                    f"ADD COLUMN dialogue_summary_ratio REAL NOT NULL DEFAULT {DEFAULT_DIALOGUE_SUMMARY_RATIO_SQL};"
+                )
+            )
+        if "retention_ratio" not in columns:
+            conn.execute(
+                (
+                    "ALTER TABLE app_settings "
+                    f"ADD COLUMN retention_ratio REAL NOT NULL DEFAULT {DEFAULT_RETENTION_RATIO_SQL};"
+                )
+            )
+
     async def initialize(self) -> None:
         """初始化 SQLite 连接并确保表结构存在。"""
         async with self._lock:
@@ -97,6 +147,10 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                     llm_max_tool_rounds INTEGER NOT NULL,
                     context_total_token_limit INTEGER NOT NULL,
                     tokenizer_model TEXT NOT NULL DEFAULT 'kimi-k2.5',
+                    memory_capacity_ratio REAL NOT NULL DEFAULT 0.10,
+                    notebook_capacity_ratio REAL NOT NULL DEFAULT 0.04,
+                    dialogue_summary_ratio REAL NOT NULL DEFAULT 0.05,
+                    retention_ratio REAL NOT NULL DEFAULT 0.10,
                     deep_thinking_enabled INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -138,6 +192,7 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                 ON messages(user_id, session_id, id);
                 """
             )
+            self._ensure_app_settings_columns(conn)
             conn.commit()
             self._conn = conn
 
@@ -161,8 +216,12 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                 llm_max_tool_rounds,
                 context_total_token_limit,
                 tokenizer_model,
+                memory_capacity_ratio,
+                notebook_capacity_ratio,
+                dialogue_summary_ratio,
+                retention_ratio,
                 deep_thinking_enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 user_id,
@@ -172,6 +231,10 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                 DEFAULT_LLM_MAX_TOOL_ROUNDS,
                 DEFAULT_TOTAL_LIMIT,
                 DEFAULT_TOKENIZER_MODEL,
+                DEFAULT_MEMORY_CAPACITY_RATIO_SQL,
+                DEFAULT_NOTEBOOK_CAPACITY_RATIO_SQL,
+                DEFAULT_DIALOGUE_SUMMARY_RATIO_SQL,
+                DEFAULT_RETENTION_RATIO_SQL,
                 DEFAULT_DEEP_THINKING_ENABLED,
             ),
         )
@@ -226,7 +289,7 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
             return {
                 "user_id": row["user_id"],
                 "session_id": row["session_id"],
-                "workbench_summary": row["workbench_summary"] or "",
+                "workbench_summary": str(row["workbench_summary"] or ""),
                 "is_compressing": bool(row["is_compressing"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
@@ -254,6 +317,22 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                 max_tool_rounds=int(row["llm_max_tool_rounds"] or DEFAULT_LLM_MAX_TOOL_ROUNDS),
                 total_token_limit=int(row["context_total_token_limit"] or DEFAULT_TOTAL_LIMIT),
                 tokenizer_model=str(row["tokenizer_model"] or "").strip() or DEFAULT_TOKENIZER_MODEL,
+                memory_capacity_ratio=float(
+                    row["memory_capacity_ratio"] if row["memory_capacity_ratio"] is not None else DEFAULT_MEMORY_CAPACITY_RATIO_SQL
+                ),
+                notebook_capacity_ratio=float(
+                    row["notebook_capacity_ratio"]
+                    if row["notebook_capacity_ratio"] is not None
+                    else DEFAULT_NOTEBOOK_CAPACITY_RATIO_SQL
+                ),
+                dialogue_summary_ratio=float(
+                    row["dialogue_summary_ratio"]
+                    if row["dialogue_summary_ratio"] is not None
+                    else DEFAULT_DIALOGUE_SUMMARY_RATIO_SQL
+                ),
+                retention_ratio=float(
+                    row["retention_ratio"] if row["retention_ratio"] is not None else DEFAULT_RETENTION_RATIO_SQL
+                ),
                 deep_thinking_enabled=bool(int(row["deep_thinking_enabled"] or 0)),
             )
 
@@ -271,9 +350,13 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                     llm_max_tool_rounds,
                     context_total_token_limit,
                     tokenizer_model,
+                    memory_capacity_ratio,
+                    notebook_capacity_ratio,
+                    dialogue_summary_ratio,
+                    retention_ratio,
                     deep_thinking_enabled,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     llm_model = excluded.llm_model,
                     llm_api_key = excluded.llm_api_key,
@@ -281,6 +364,10 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                     llm_max_tool_rounds = excluded.llm_max_tool_rounds,
                     context_total_token_limit = excluded.context_total_token_limit,
                     tokenizer_model = excluded.tokenizer_model,
+                    memory_capacity_ratio = excluded.memory_capacity_ratio,
+                    notebook_capacity_ratio = excluded.notebook_capacity_ratio,
+                    dialogue_summary_ratio = excluded.dialogue_summary_ratio,
+                    retention_ratio = excluded.retention_ratio,
                     deep_thinking_enabled = excluded.deep_thinking_enabled,
                     updated_at = CURRENT_TIMESTAMP;
                 """,
@@ -292,6 +379,10 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                     int(settings.max_tool_rounds),
                     int(settings.total_token_limit),
                     settings.tokenizer_model,
+                    float(settings.memory_capacity_ratio),
+                    float(settings.notebook_capacity_ratio),
+                    float(settings.dialogue_summary_ratio),
+                    float(settings.retention_ratio),
                     1 if settings.deep_thinking_enabled else 0,
                 ),
             )
@@ -313,8 +404,8 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
             )
             conn.commit()
 
-    async def update_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
-        """更新会话的工作台摘要文本。"""
+    async def set_workbench_summary(self, user_id: str, session_id: str, summary: str) -> None:
+        """覆盖更新会话 ``workbench_summary``。"""
         await self.ensure_session(user_id, session_id)
         async with self._lock:
             conn = self._ensure_conn()
@@ -324,7 +415,7 @@ class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsReposito
                 SET workbench_summary = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ? AND session_id = ?;
                 """,
-                (summary, user_id, session_id),
+                (str(summary or ""), user_id, session_id),
             )
             conn.commit()
 

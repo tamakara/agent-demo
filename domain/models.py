@@ -20,6 +20,10 @@ class GlobalSettings:
     max_tool_rounds: int
     total_token_limit: int
     tokenizer_model: str
+    memory_capacity_ratio: float = 0.10
+    notebook_capacity_ratio: float = 0.04
+    dialogue_summary_ratio: float = 0.05
+    retention_ratio: float = 0.10
     deep_thinking_enabled: bool = False
 
 
@@ -33,6 +37,10 @@ class LLMConfig:
     total_token_limit: int
     tokenizer_model: str
     max_tool_rounds: int
+    memory_capacity_ratio: float = 0.10
+    notebook_capacity_ratio: float = 0.04
+    dialogue_summary_ratio: float = 0.05
+    retention_ratio: float = 0.10
     deep_thinking_enabled: bool = False
 
     @classmethod
@@ -43,6 +51,10 @@ class LLMConfig:
             base_url=settings.base_url,
             total_token_limit=int(settings.total_token_limit),
             tokenizer_model=settings.tokenizer_model,
+            memory_capacity_ratio=float(settings.memory_capacity_ratio),
+            notebook_capacity_ratio=float(settings.notebook_capacity_ratio),
+            dialogue_summary_ratio=float(settings.dialogue_summary_ratio),
+            retention_ratio=float(settings.retention_ratio),
             max_tool_rounds=int(settings.max_tool_rounds),
             deep_thinking_enabled=bool(settings.deep_thinking_enabled),
         )
@@ -89,7 +101,7 @@ class MemoryStatus:
     dialogue_tokens: int
     buffer_tokens: int
     is_compressing: bool
-    thresholds: dict[str, int]
+    thresholds: dict[str, int | float]
 
 
 @dataclass(slots=True)
