@@ -1,37 +1,35 @@
-﻿# API 与流式协议
+# API 与流式协议
 
 ## 1. 文档目标
 
-本文档集中描述对外通信契约：
+本文档描述当前对外通信契约：
 
-- HTTP 路由与请求参数
-- 统一响应 envelope
-- `POST /chat/stream` 的 SSE 协议
-
-不包含内部架构与分层设计（见 `system_design.md`），不包含持久化与窗口预算细节（见 `state_and_persistence.md`）。
+- REST 资源路由
+- 统一 JSON 响应 envelope
+- 聊天 SSE 协议
 
 ## 2. 全局约束
 
 1. 路由无统一前缀（不使用 `/api`、`/v1`）。
-2. 路由按模块前缀组织：`/user/*`、`/chat/*`、`/storage/*`。
-3. `user_id` 通过 query 或 body 传递；`employee_id` 仅在员工/聊天相关接口中传递，`/storage/*` 为用户级文件管理接口。
+2. 路由按资源组织，以 `/users/{user_id}` 为租户入口。
+3. 成功与失败响应均使用统一 envelope。
 
-统一成功响应：
+成功响应示例：
 
 ```json
 {
   "request_id": "...",
-  "ts": "2026-03-15T12:00:00.000000Z",
+  "ts": "2026-03-20T12:00:00.000000Z",
   "data": {}
 }
 ```
 
-统一失败响应：
+失败响应示例：
 
 ```json
 {
   "request_id": "...",
-  "ts": "2026-03-15T12:00:00.000000Z",
+  "ts": "2026-03-20T12:00:00.000000Z",
   "error": {
     "code": "validation_error",
     "message": "...",
@@ -40,23 +38,22 @@
 }
 ```
 
-## 3. HTTP 路由清单
+## 3. REST 路由
 
-### 3.1 User
+### 3.1 员工与设置
 
-- `GET /user/settings?user_id=...`
-- `PUT /user/settings`
-- `GET /user/employees?user_id=...`
-- `POST /user/employees`
-- `POST /user/employees/{employee_id}/reset?user_id=...`
-- `DELETE /user/employees/{employee_id}?user_id=...`
-- `GET /user/employee-messages?user_id=...&employee_id=...&limit=50`
+- `GET /users/{user_id}/employees`
+- `POST /users/{user_id}/employees`
+- `DELETE /users/{user_id}/employees/{employee_id}`
+- `POST /users/{user_id}/employees/{employee_id}/reset`
+- `GET /users/{user_id}/employees/{employee_id}/messages?limit=500`
+- `GET /users/{user_id}/settings`
+- `PUT /users/{user_id}/settings`
 
-`PUT /user/settings` 请求体示例：
+`PUT /users/{user_id}/settings` body：
 
 ```json
 {
-  "user_id": "alice",
   "model": "agent-advoo",
   "api_key": "sk-...",
   "base_url": "http://model-gateway.test.api.dotai.internal/v1",
@@ -65,37 +62,16 @@
 }
 ```
 
-### 3.2 Chat
+### 3.2 文件管理
 
-- `POST /chat/stream`
-- `GET /chat/memory/status?user_id=...&employee_id=...`
-- `POST /chat/memory/compression`
+- `GET /users/{user_id}/files/tree`
+- `GET /users/{user_id}/files/content?path=...`
+- `PUT /users/{user_id}/files/content?path=...`
+- `DELETE /users/{user_id}/files/content?path=...`
+- `GET /users/{user_id}/files/preview?path=...`
+- `POST /users/{user_id}/files/brand-library`（`multipart/form-data`）
 
-`POST /chat/stream` 请求体示例：
-
-```json
-{
-  "user_id": "alice",
-  "employee_id": "1",
-  "message": "你好"
-}
-```
-
-### 3.3 Storage
-
-- `GET /storage/tree?user_id=...`
-- `GET /storage/file-content?user_id=...&path=...`
-- `PUT /storage/file-content?user_id=...&path=...`
-- `GET /storage/file-preview?user_id=...&path=...`
-- `DELETE /storage/file?user_id=...&path=...`
-- `POST /storage/brand-library/upload?user_id=...`（`multipart/form-data`）
-
-`path` 统一为相对用户数据根目录的路径，例如：
-
-- `employee/1/notebook/soul.md`
-- `employee/1/.memory/memory.md`
-
-`PUT /storage/file-content` 请求体示例：
+`PUT /users/{user_id}/files/content` body：
 
 ```json
 {
@@ -104,76 +80,85 @@
 }
 ```
 
-## 4. SSE 协议（`POST /chat/stream`）
+### 3.3 聊天与压缩
+
+- `POST /users/{user_id}/employees/{employee_id}/sessions/{session_id}/messages/stream`
+- `GET /users/{user_id}/employees/{employee_id}/sessions/{session_id}/memory`
+- `POST /users/{user_id}/employees/{employee_id}/sessions/{session_id}/compressions`
+
+`POST .../messages/stream` body：
+
+```json
+{
+  "message": "你好"
+}
+```
+
+## 4. SSE 协议（聊天流）
 
 响应头：
 
 - `Content-Type: text/event-stream`
 
-每条事件格式：
+每帧格式：
 
 ```text
 event: message
 data: { ...json envelope... }
 ```
 
-其中 `event` 固定为 `message`。
-
-### 4.1 Envelope 结构
+### 4.1 SSE Envelope
 
 ```json
 {
   "type": "meta",
   "seq": 1,
   "request_id": "...",
-  "ts": "2026-03-11T15:20:00.000000Z",
+  "ts": "2026-03-20T12:00:00.000000Z",
   "employee_id": "1",
   "session_id": "employee-1",
   "payload": {}
 }
 ```
 
-字段说明：
+字段含义：
 
 - `type`：业务事件类型
-- `seq`：单请求内自增序号
-- `request_id`：请求标识
+- `seq`：单请求内递增序号
+- `request_id`：请求追踪 ID
 - `ts`：UTC 时间戳
-- `employee_id`：当前员工编号
-- `session_id`：当前会话 ID
-- `payload`：事件负载
+- `employee_id`：员工编号
+- `session_id`：会话 ID
+- `payload`：事件载荷
 
 ### 4.2 事件类型
 
 - `meta`
-- `tool_call`
-- `tool_result`
+- `tool_request`
+- `tool_response`
+- `llm_request`
+- `llm_response`
+- `llm_error`
+- `state_refresh`
 - `assistant_final`
 - `memory_status`
-- `done`
+- `system_event`
 - `error`
+- `done`
 
 常见顺序：
 
 1. `meta`
-2. `tool_call`（可多次）
-3. `tool_result`（可多次）
-4. `assistant_final`
-5. `memory_status`
-6. `done`
+2. `tool_request/tool_response`（可多次）
+3. `assistant_final`
+4. `memory_status`
+5. `done`
 
-异常时通常为：`error` -> `done`。
+异常场景：通常为 `error -> done`。
 
 ## 5. 前端消费建议
 
-1. 按 `\n\n` 分帧读取流。
-2. 提取 `data:` 行并解析 JSON。
-3. 按 `type` 分发渲染，未知类型忽略。
-4. 收到 `done` 后恢复输入状态。
-
-## 6. 常见错误场景
-
-- 工具调用参数不匹配 schema。
-- 上游模型请求失败或超时。
-- 压缩期间 `buffer` 超限，拒绝新消息。
-
+1. 按 `\n\n` 分帧读取。
+2. 提取 `data:` 并解析 JSON。
+3. 按 `type` 分发渲染，未知类型可忽略。
+4. 收到 `done` 后结束本次会话流。

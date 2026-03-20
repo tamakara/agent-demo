@@ -13,11 +13,22 @@ import {
 } from "./state.js";
 import { setFileSelectHandler, ui } from "./ui.js";
 
-const userQuery = () => ({ user_id: state.userId });
-const employeeQuery = (employeeId = state.activeEmployeeId) => ({
-  user_id: state.userId,
-  employee_id: String(employeeId || "").trim() || "1"
-});
+const normalizedUserId = () => String(state.userId || "").trim();
+const normalizedEmployeeId = (employeeId = state.activeEmployeeId) =>
+  String(employeeId || "").trim() || "1";
+const userBasePath = () => `/users/${encodeURIComponent(normalizedUserId())}`;
+const employeeBasePath = (employeeId = state.activeEmployeeId) =>
+  `${userBasePath()}/employees/${encodeURIComponent(normalizedEmployeeId(employeeId))}`;
+const sessionIdForEmployee = (employeeId = state.activeEmployeeId) => {
+  const normalizedEmployee = normalizedEmployeeId(employeeId);
+  const matchedEmployee = state.employees.find(
+    (item) => String(item?.employee_id || "").trim() === normalizedEmployee
+  );
+  const sessionId = String(matchedEmployee?.session_id || "").trim();
+  return sessionId || `employee-${normalizedEmployee}`;
+};
+const sessionBasePath = (employeeId = state.activeEmployeeId) =>
+  `${employeeBasePath(employeeId)}/sessions/${encodeURIComponent(sessionIdForEmployee(employeeId))}`;
 
 export const logic = {
   parseJsonObject(value) {
@@ -61,21 +72,11 @@ export const logic = {
     const content = message.content;
     const parsedPayload = this.parseJsonObject(content);
 
-    if (messageKind === "tool_call") {
-      if (parsedPayload) return { type: "tool_request", payload: parsedPayload };
-      return { type: "tool_request", payload: String(content || "") };
-    }
-
-    if (messageKind === "tool_result") {
-      if (parsedPayload) return { type: "tool_response", payload: parsedPayload };
-      return { type: "tool_response", payload: String(content || "") };
-    }
-
     if (messageKind === "meta") {
       if (parsedPayload) {
-        const metaType = String(parsedPayload.type || "").trim().toLowerCase();
-        if (["llm_request", "llm_response", "llm_error", "state_refresh"].includes(metaType)) {
-          return { type: metaType, payload: parsedPayload };
+        const eventType = String(parsedPayload.event || "").trim().toLowerCase();
+        if (eventType.startsWith("graph_")) {
+          return { type: eventType, payload: parsedPayload };
         }
         return { type: "system_event", payload: parsedPayload };
       }
@@ -94,17 +95,17 @@ export const logic = {
       ui.appendChat("assistant", payload?.content || "");
       return;
     }
-    if (eventType === "tool_request" || eventType === "tool_call") {
-      ui.appendChat("tool_request", payload);
+    if (eventType === "graph_tool_start") {
+      ui.appendChat("graph_tool_start", payload);
       return;
     }
-    if (eventType === "tool_response" || eventType === "tool_result") {
-      ui.appendChat("tool_response", payload);
+    if (eventType === "graph_tool_end") {
+      ui.appendChat("graph_tool_end", payload);
       const imageInfo = this.extractGeneratedImage(payload);
       if (imageInfo) ui.appendImageToChat(imageInfo);
       return;
     }
-    if (["llm_request", "llm_response", "llm_error", "state_refresh", "system_event"].includes(eventType)) {
+    if (["graph_reasoning_start", "graph_reasoning_end", "graph_error", "system_event"].includes(eventType)) {
       ui.appendChat(eventType, payload);
       return;
     }
@@ -131,7 +132,7 @@ export const logic = {
         const event = JSON.parse(dataText);
         onEvent(event);
       } catch (_) {
-        // ignore malformed event payload
+        // 忽略格式损坏的 SSE 事件片段，继续消费后续帧，避免整条流中断。
       }
     });
     return remainder;
@@ -155,7 +156,7 @@ export const logic = {
     state.loadingTextFilePath = targetPath;
     ui.updateEditor();
     try {
-      const data = await api.get("/storage/file-content", { ...employeeQuery(), path: targetPath });
+      const data = await api.get(`${userBasePath()}/files/content`, { path: targetPath });
       state.textFileCache[targetPath] = String(data?.content ?? "");
     } catch (err) {
       ui.notify(`读取文件失败: ${err.message}`, "error");
@@ -201,11 +202,11 @@ export const logic = {
 
     try {
       await this.loadSettings();
-      const data = await api.get("/user/employees", userQuery());
+      const data = await api.get(`${userBasePath()}/employees`);
       state.employees = data.employees || [];
       if (!state.employees.length) await this.createEmployee();
 
-      state.activeEmployeeId = state.employees[0]?.employee_id || "";
+      state.activeEmployeeId = String(state.employees[0]?.employee_id || "");
       state.activeFile = null;
       state.selectedFile = null;
       state.files = [];
@@ -221,7 +222,7 @@ export const logic = {
 
   async loadSettings() {
     if (!state.userId) return;
-    const settings = await api.get("/user/settings", userQuery());
+    const settings = await api.get(`${userBasePath()}/settings`);
     state.settings = settings || null;
     ui.applySettings(state.settings);
   },
@@ -236,6 +237,7 @@ export const logic = {
     const baseUrl = $("baseUrl").value.trim();
     const totalTokenLimit = this.parseIntOrNull($("totalTokenLimit").value);
     const tokenizerModel = String($("tokenizerModel").value || "").trim().toLowerCase();
+    const deepThinkingEnabled = !!$("deepThinkingEnabled").checked;
 
     if (totalTokenLimit == null) {
       ui.notify("请填写合法的 Total Token Limit", "error");
@@ -246,13 +248,13 @@ export const logic = {
       return;
     }
 
-    const latest = await api.put("/user/settings", {
-      user_id: state.userId,
+    const latest = await api.put(`${userBasePath()}/settings`, {
       model,
       api_key: apiKey,
       base_url: baseUrl,
       total_token_limit: totalTokenLimit,
-      tokenizer_model: tokenizerModel
+      tokenizer_model: tokenizerModel,
+      deep_thinking_enabled: deepThinkingEnabled
     });
     state.settings = latest || null;
     ui.applySettings(state.settings);
@@ -264,7 +266,7 @@ export const logic = {
       ui.notify("请先选择用户与员工", "error");
       return;
     }
-    const data = await api.post("/chat/memory/compression", employeeQuery());
+    const data = await api.post(`${sessionBasePath()}/compressions`);
     const accepted = !!data?.accepted;
     ui.notify(accepted ? "已触发手动压缩" : "当前已有压缩任务在执行", "success");
     await this.refreshStatus();
@@ -278,11 +280,13 @@ export const logic = {
     }
     const confirmed = window.confirm("确认重置员工吗？将重置该员工全部数据（记忆、workspace、skills 等），效果等同删除后同编号重建。");
     if (!confirmed) return;
-    await api.post(`/user/employees/${encodeURIComponent(targetEmployeeId)}/reset`, null, userQuery());
-    const employeesData = await api.get("/user/employees", userQuery());
+    await api.post(`${employeeBasePath(targetEmployeeId)}/reset`);
+    const employeesData = await api.get(`${userBasePath()}/employees`);
     state.employees = employeesData.employees || [];
-    const exists = state.employees.some((item) => item.employee_id === targetEmployeeId);
-    state.activeEmployeeId = exists ? targetEmployeeId : (state.employees[0]?.employee_id || "");
+    const exists = state.employees.some(
+      (item) => String(item?.employee_id || "").trim() === targetEmployeeId
+    );
+    state.activeEmployeeId = exists ? targetEmployeeId : String(state.employees[0]?.employee_id || "");
     this.renderEmpSelect();
     await this.loadContext({ refreshFiles: true, resetExpandedDirs: true });
     ui.notify(`员工 #${targetEmployeeId} 已重置（同编号重建）`, "success");
@@ -296,11 +300,11 @@ export const logic = {
     }
     const confirmed = window.confirm(`确认删除员工 #${targetEmployeeId} 吗？该员工的消息与 employee/${targetEmployeeId} 目录数据将被删除。`);
     if (!confirmed) return;
-    await api.del(`/user/employees/${encodeURIComponent(targetEmployeeId)}`, userQuery());
+    await api.del(`${employeeBasePath(targetEmployeeId)}`);
 
-    const employeesData = await api.get("/user/employees", userQuery());
+    const employeesData = await api.get(`${userBasePath()}/employees`);
     state.employees = employeesData.employees || [];
-    state.activeEmployeeId = state.employees[0]?.employee_id || "";
+    state.activeEmployeeId = String(state.employees[0]?.employee_id || "");
     state.activeFile = null;
     state.selectedFile = null;
     state.textFileCache = {};
@@ -330,7 +334,7 @@ export const logic = {
     }
     const confirmed = window.confirm(`确认删除文件吗？\n${selected.path}`);
     if (!confirmed) return;
-    await api.del("/storage/file", { ...employeeQuery(), path: selected.path });
+    await api.del(`${userBasePath()}/files/content`, { path: selected.path });
     if (state.loadingTextFilePath === selected.path) {
       state.loadingTextFilePath = "";
     }
@@ -348,7 +352,7 @@ export const logic = {
     }
     const files = Array.from(fileList || []).filter(Boolean);
     if (!files.length) return;
-    const result = await api.upload("/storage/brand-library/upload", files, employeeQuery());
+    const result = await api.upload(`${userBasePath()}/files/brand-library`, files);
     await this.refreshFiles();
     const uploaded = Array.isArray(result?.uploaded) ? result.uploaded : [];
     if (!uploaded.length) {
@@ -366,16 +370,19 @@ export const logic = {
   },
 
   async createEmployee() {
-    const data = await api.post("/user/employees", { user_id: state.userId });
+    const data = await api.post(`${userBasePath()}/employees`);
     state.employees.push(data.employee);
-    state.activeEmployeeId = data.employee.employee_id;
+    state.activeEmployeeId = String(data?.employee?.employee_id || "");
     this.renderEmpSelect();
   },
 
   renderEmpSelect() {
-    els.empSelect.innerHTML = state.employees.map((entry) =>
-      `<option value="${entry.employee_id}" ${entry.employee_id === state.activeEmployeeId ? "selected" : ""}>员工 #${entry.employee_id}</option>`
-    ).join("");
+    const selectedEmployeeId = String(state.activeEmployeeId || "").trim();
+    els.empSelect.innerHTML = state.employees.map((entry) => {
+      const employeeId = String(entry?.employee_id || "").trim();
+      const selected = employeeId === selectedEmployeeId ? "selected" : "";
+      return `<option value="${employeeId}" ${selected}>员工 #${employeeId}</option>`;
+    }).join("");
     const disabled = !state.userId || state.isChatting;
     const hasEmployees = state.employees.length > 0;
     const hasActiveEmployee = !!String(state.activeEmployeeId || "").trim();
@@ -387,13 +394,13 @@ export const logic = {
   async loadContext({ refreshFiles = false, resetExpandedDirs = false } = {}) {
     if (!state.activeEmployeeId) return;
     try {
-      const history = await api.get("/user/employee-messages", { ...employeeQuery(), limit: "50" });
+      const history = await api.get(`${employeeBasePath()}/messages`, { limit: "50" });
       els.chatLog.innerHTML = "";
       (history.messages || []).forEach((message) => {
         const normalized = this.normalizeHistoryMessage(message);
         ui.appendChat(normalized.type, normalized.payload);
         const imageInfo = this.extractGeneratedImage(
-          normalized && normalized.type === "tool_response" ? normalized.payload : null
+          normalized && normalized.type === "graph_tool_end" ? normalized.payload : null
         );
         if (imageInfo) ui.appendImageToChat(imageInfo);
       });
@@ -411,7 +418,7 @@ export const logic = {
   async refreshFiles({ resetExpandedDirs = false } = {}) {
     if (resetExpandedDirs) state.expandedDirs = new Set();
     const currentSelectedPath = String(state.selectedFile?.path || "");
-    const mem = await api.get("/storage/tree", employeeQuery());
+    const mem = await api.get(`${userBasePath()}/files/tree`);
     state.files = mem.files || [];
     state.dataTree = mem.tree || [];
     const currentPaths = new Set(
@@ -449,7 +456,7 @@ export const logic = {
   async refreshStatus() {
     const model = $("model").value.trim();
     const query = model ? { model } : {};
-    const status = await api.get("/chat/memory/status", { ...employeeQuery(), ...query }).catch(() => null);
+    const status = await api.get(`${sessionBasePath()}/memory`, query).catch(() => null);
     ui.updateTokenBoard(status);
   },
 
@@ -460,12 +467,28 @@ export const logic = {
     ui.appendChat("user", msg);
 
     try {
-      const payload = { ...employeeQuery(), message: msg };
-      const res = await fetch("/chat/stream", {
+      const payload = { message: msg };
+      const res = await fetch(`${sessionBasePath()}/messages/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+      if (!res.ok) {
+        let errorMessage = `HTTP ${res.status}`;
+        try {
+          const payload = await res.json();
+          const detail = payload && typeof payload === "object" ? payload.error : null;
+          if (detail && typeof detail.message === "string" && detail.message.trim()) {
+            errorMessage = detail.message;
+          }
+        } catch {
+          // 非 JSON 错误体保持默认 HTTP 状态提示，避免二次解析抛错覆盖根因。
+        }
+        throw new Error(errorMessage);
+      }
+      if (!res.body) {
+        throw new Error("流式响应为空");
+      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -579,9 +602,9 @@ export const logic = {
 
         const content = els.fileContent.value;
         const result = await api.put(
-          "/storage/file-content",
+          `${userBasePath()}/files/content`,
           { content, mode: "overwrite" },
-          { ...employeeQuery(), path: selected.path }
+          { path: selected.path }
         );
         const latestContent = typeof result?.content === "string" ? result.content : content;
         const file = findEditableFile(selected.path);

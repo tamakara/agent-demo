@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from common.time_utils import utc_now_iso
+from api.time_utils import utc_now_iso
 
 
 @dataclass(slots=True)

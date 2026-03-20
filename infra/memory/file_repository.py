@@ -8,9 +8,9 @@ from typing import Literal, cast
 
 import aiofiles
 
-from app.ports.repositories import MemoryFileRepositoryPort
-from common.errors import NotFoundError, ValidationError
-from common.ids import normalize_employee_id
+from app.errors import NotFoundError, ValidationError
+from app.id_codec import normalize_employee_id
+from app.interfaces import IMemoryRepository
 
 from .storage_layout import (
     ASSET_PLACEHOLDER_FILE,
@@ -78,7 +78,7 @@ PREFERRED_FILE_ORDER = [
 VISIBLE_ROOT_DIRS = ("brand_library", "employee", "skill_library")
 
 
-class FileMemoryRepository(MemoryFileRepositoryPort):
+class FileMemoryRepository(IMemoryRepository):
     """基于本地文件系统的记忆仓储。"""
 
     @staticmethod

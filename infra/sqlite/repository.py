@@ -7,9 +7,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from app.ports.repositories import MessageRepositoryPort, SessionRepositoryPort, UserSettingsRepositoryPort
+from app.interfaces import IMessageRepository, ISettingsRepository, ISessionRepository
 from domain.models import GlobalSettings
-from domain.window_policy import DEFAULT_TOTAL_LIMIT
+from app.window_policy import DEFAULT_TOTAL_LIMIT
 
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "agent_state.db"
@@ -18,6 +18,7 @@ DEFAULT_LLM_API_KEY = "sk-RtSmDDQfUbbrNczdVajJqoozIR8AYolUOWwSTgpc2s7rZq6F"
 DEFAULT_LLM_BASE_URL = "http://model-gateway.test.api.dotai.internal/v1"
 DEFAULT_LLM_MAX_TOOL_ROUNDS = 64
 DEFAULT_TOKENIZER_MODEL = "kimi-k2.5"
+DEFAULT_DEEP_THINKING_ENABLED = 0
 GLOBAL_LLM_SELECT_SQL = """
 SELECT
     llm_model,
@@ -25,7 +26,8 @@ SELECT
     llm_base_url,
     llm_max_tool_rounds,
     context_total_token_limit,
-    tokenizer_model
+    tokenizer_model,
+    deep_thinking_enabled
 FROM app_settings
 WHERE user_id = ?;
 """
@@ -36,7 +38,7 @@ WHERE user_id = ? AND session_id = ?;
 """
 
 
-class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSettingsRepositoryPort):
+class SQLiteRepository(ISessionRepository, IMessageRepository, ISettingsRepository):
     """SQLite 的仓储适配器。"""
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
@@ -85,7 +87,6 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 );
                 """
             )
-            self._ensure_sessions_schema(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS app_settings (
@@ -96,11 +97,11 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     llm_max_tool_rounds INTEGER NOT NULL,
                     context_total_token_limit INTEGER NOT NULL,
                     tokenizer_model TEXT NOT NULL DEFAULT 'kimi-k2.5',
+                    deep_thinking_enabled INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 """
             )
-            self._ensure_app_settings_schema(conn)
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS messages (
@@ -119,7 +120,6 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 );
                 """
             )
-            self._assert_messages_schema(conn)
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_messages_user_session_zone
@@ -142,77 +142,6 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
             self._conn = conn
 
     @staticmethod
-    def _ensure_sessions_schema(conn: sqlite3.Connection) -> None:
-        """确保 ``sessions`` 表包含当前版本所需列。"""
-        columns = [
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(sessions);").fetchall()
-            if row["name"] is not None
-        ]
-        if "is_compressing" in columns:
-            return
-
-        conn.execute(
-            """
-            ALTER TABLE sessions
-            ADD COLUMN is_compressing INTEGER NOT NULL DEFAULT 0;
-            """
-        )
-
-        legacy_flag_columns = [
-            name
-            for name in columns
-            if name.startswith("is_") and name != "is_compressing"
-        ]
-        if not legacy_flag_columns:
-            return
-
-        source_column = legacy_flag_columns[0]
-        safe_source_column = source_column.replace('"', '""')
-        conn.execute(
-            f'UPDATE sessions SET is_compressing = COALESCE("{safe_source_column}", 0);'
-        )
-
-    @staticmethod
-    def _ensure_app_settings_schema(conn: sqlite3.Connection) -> None:
-        """确保 ``app_settings`` 表包含当前版本所需列。"""
-        columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(app_settings);").fetchall()
-            if row["name"] is not None
-        }
-        if "tokenizer_model" not in columns:
-            conn.execute(
-                """
-                ALTER TABLE app_settings
-                ADD COLUMN tokenizer_model TEXT NOT NULL DEFAULT 'kimi-k2.5';
-                """
-            )
-        conn.execute(
-            """
-            UPDATE app_settings
-            SET tokenizer_model = ?
-            WHERE tokenizer_model IS NULL
-                OR TRIM(tokenizer_model) = ''
-                OR LOWER(TRIM(tokenizer_model)) <> ?;
-            """,
-            (DEFAULT_TOKENIZER_MODEL, DEFAULT_TOKENIZER_MODEL),
-        )
-
-    @staticmethod
-    def _assert_messages_schema(conn: sqlite3.Connection) -> None:
-        """校验 ``messages`` 表符合当前版本结构。"""
-        columns = {
-            str(row["name"])
-            for row in conn.execute("PRAGMA table_info(messages);").fetchall()
-            if row["name"] is not None
-        }
-        if "message_kind" not in columns:
-            raise RuntimeError(
-                "数据库 messages 表缺少 `message_kind` 列，请重建数据库后再启动。"
-            )
-
-    @staticmethod
     def _ensure_global_llm_config_seed(conn: sqlite3.Connection, user_id: str) -> None:
         """在配置缺失时插入默认 LLM 参数。"""
         existing = conn.execute(
@@ -231,8 +160,9 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 llm_base_url,
                 llm_max_tool_rounds,
                 context_total_token_limit,
-                tokenizer_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?);
+                tokenizer_model,
+                deep_thinking_enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 user_id,
@@ -242,6 +172,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 DEFAULT_LLM_MAX_TOOL_ROUNDS,
                 DEFAULT_TOTAL_LIMIT,
                 DEFAULT_TOKENIZER_MODEL,
+                DEFAULT_DEEP_THINKING_ENABLED,
             ),
         )
 
@@ -323,6 +254,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                 max_tool_rounds=int(row["llm_max_tool_rounds"] or DEFAULT_LLM_MAX_TOOL_ROUNDS),
                 total_token_limit=int(row["context_total_token_limit"] or DEFAULT_TOTAL_LIMIT),
                 tokenizer_model=str(row["tokenizer_model"] or "").strip() or DEFAULT_TOKENIZER_MODEL,
+                deep_thinking_enabled=bool(int(row["deep_thinking_enabled"] or 0)),
             )
 
     async def update_global_settings(self, settings: GlobalSettings) -> GlobalSettings:
@@ -339,8 +271,9 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     llm_max_tool_rounds,
                     context_total_token_limit,
                     tokenizer_model,
+                    deep_thinking_enabled,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     llm_model = excluded.llm_model,
                     llm_api_key = excluded.llm_api_key,
@@ -348,6 +281,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     llm_max_tool_rounds = excluded.llm_max_tool_rounds,
                     context_total_token_limit = excluded.context_total_token_limit,
                     tokenizer_model = excluded.tokenizer_model,
+                    deep_thinking_enabled = excluded.deep_thinking_enabled,
                     updated_at = CURRENT_TIMESTAMP;
                 """,
                 (
@@ -358,6 +292,7 @@ class SQLiteRepository(SessionRepositoryPort, MessageRepositoryPort, UserSetting
                     int(settings.max_tool_rounds),
                     int(settings.total_token_limit),
                     settings.tokenizer_model,
+                    1 if settings.deep_thinking_enabled else 0,
                 ),
             )
             conn.commit()

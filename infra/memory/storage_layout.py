@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from common.ids import normalize_employee_id
-from common.errors import ValidationError
-from domain.chat.memory_files import (
+from app.errors import ValidationError
+from app.id_codec import normalize_employee_id
+from app.memory_specs import (
     ASSET_PLACEHOLDER_FILE,
     COMPRESSED_MEMORY_DIR,
     COMPRESSED_MEMORY_FILE,

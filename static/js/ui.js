@@ -17,12 +17,11 @@ export const setFileSelectHandler = (handler) => {
 export const ui = {
   eventTitle(type) {
     const normalized = String(type || "").trim().toLowerCase();
-    if (normalized === "tool_request" || normalized === "tool_call") return "🛠️ Tool 请求";
-    if (normalized === "tool_response" || normalized === "tool_result") return "📦 Tool 返回";
-    if (normalized === "llm_request") return "📡 LLM 请求";
-    if (normalized === "llm_response") return "📥 LLM 返回";
-    if (normalized === "llm_error") return "❌ LLM 错误";
-    if (normalized === "state_refresh") return "🔄 状态刷新";
+    if (normalized === "graph_tool_start") return "🛠️ Tool 开始";
+    if (normalized === "graph_tool_end") return "📦 Tool 结束";
+    if (normalized === "graph_reasoning_start") return "🧠 推理开始";
+    if (normalized === "graph_reasoning_end") return "🧠 推理结束";
+    if (normalized === "graph_error") return "❌ Graph 错误";
     if (normalized === "system_event" || normalized === "meta") return "🧩 系统事件";
     if (normalized === "error") return "❌ 错误";
     return `🔧 ${type}`;
@@ -32,23 +31,23 @@ export const ui = {
     const normalized = String(type || "").trim().toLowerCase();
     if (!content || typeof content !== "object") return this.eventTitle(type);
 
-    if (normalized === "llm_request") {
+    if (normalized === "graph_reasoning_start") {
       const round = content.round != null ? `round ${content.round}` : "";
-      const model = content.request_body?.model ? `model ${content.request_body.model}` : "";
-      const extra = [round, model].filter(Boolean).join(" · ");
+      const msgCount = Number.isFinite(Number(content.message_count)) ? `messages ${content.message_count}` : "";
+      const extra = [round, msgCount].filter(Boolean).join(" · ");
       return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
     }
 
-    if (normalized === "llm_response") {
+    if (normalized === "graph_reasoning_end") {
       const round = content.round != null ? `round ${content.round}` : "";
-      const latency = Number.isFinite(Number(content.latency_ms)) ? `${content.latency_ms}ms` : "";
-      const finishReason = content.finish_reason ? `finish=${content.finish_reason}` : "";
-      const functionName = content.function_name ? `fn=${content.function_name}` : "";
-      const extra = [round, latency, finishReason, functionName].filter(Boolean).join(" · ");
+      const toolCalls = Number.isFinite(Number(content.tool_call_count))
+        ? `tool_calls ${content.tool_call_count}`
+        : "";
+      const extra = [round, toolCalls].filter(Boolean).join(" · ");
       return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
     }
 
-    if (normalized === "llm_error") {
+    if (normalized === "graph_error") {
       const round = content.round != null ? `round ${content.round}` : "";
       const errorText = String(content.error || "").trim();
       if (round && errorText) return `${this.eventTitle(type)} · ${round} · ${errorText}`;
@@ -56,38 +55,34 @@ export const ui = {
       return this.eventTitle(type);
     }
 
-    if (normalized === "tool_request" || normalized === "tool_call") {
+    if (normalized === "graph_tool_start") {
       const toolName = String(content.tool_name || "").trim();
       const round = content.round != null ? `round ${content.round}` : "";
       const extra = [round, toolName].filter(Boolean).join(" · ");
       return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
     }
 
-    if (normalized === "tool_response" || normalized === "tool_result") {
+    if (normalized === "graph_tool_end") {
       const toolName = String(content.tool_name || "").trim();
       const round = content.round != null ? `round ${content.round}` : "";
-      const ok = content.result && typeof content.result === "object" && !content.result.error;
+      const resultPayload = content.result && typeof content.result === "object" ? content.result : null;
+      const ok = resultPayload && !resultPayload.error;
       const status = ok ? "ok" : "error";
       const extra = [round, toolName, status].filter(Boolean).join(" · ");
       return extra ? `${this.eventTitle(type)} · ${extra}` : this.eventTitle(type);
-    }
-
-    if (normalized === "state_refresh") {
-      const reason = String(content.reason || "").trim();
-      return reason ? `${this.eventTitle(type)} · ${reason}` : this.eventTitle(type);
     }
 
     return this.eventTitle(type);
   },
 
   buildImagePreviewUrl(treePath, { bustCache = true } = {}) {
+    const userId = String(state.userId || "").trim();
+    if (!userId) return "";
     const query = new URLSearchParams({
-      user_id: String(state.userId || ""),
-      employee_id: String(state.activeEmployeeId || "1"),
       path: String(treePath || "")
     });
     if (bustCache) query.set("ts", String(Date.now()));
-    return `/storage/file-preview?${query.toString()}`;
+    return `/users/${encodeURIComponent(userId)}/files/preview?${query.toString()}`;
   },
 
   notify(message, level = "info") {
@@ -318,6 +313,7 @@ export const ui = {
     $("totalTokenLimit").value = settings.total_token_limit != null ? String(settings.total_token_limit) : "";
     const tokenizerModel = String(settings.tokenizer_model || "").trim().toLowerCase();
     $("tokenizerModel").value = TOKENIZER_OPTIONS.includes(tokenizerModel) ? tokenizerModel : DEFAULT_TOKENIZER_MODEL;
+    $("deepThinkingEnabled").checked = !!settings.deep_thinking_enabled;
   },
 
   lockUI(locked) {
